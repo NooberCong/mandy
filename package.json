@@ -1,0 +1,65 @@
+{
+  "name": "mandy",
+  "version": "1.0.0",
+  "description": "A beautiful Markdown reader with elegant, configurable UI",
+  "main": "main.js",
+  "author": "NooberCong",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/NooberCong/mandy"
+  },
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev",
+    "build": "electron-builder build --win",
+    "build:installer": "electron-builder build --win nsis",
+    "build:portable": "electron-builder build --win portable"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^26.8.1"
+  },
+  "dependencies": {
+    "highlight.js": "^11.10.0",
+    "marked": "^13.0.0"
+  },
+  "build": {
+    "appId": "com.mandy.app",
+    "productName": "Mandy",
+    "copyright": "Copyright © 2025 Mandy Authors",
+    "directories": {
+      "output": "dist",
+      "buildResources": "assets"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "renderer/**/*",
+      "assets/**/*",
+      "node_modules/**/*",
+      "!node_modules/.cache/**/*",
+      "!node_modules/electron/**/*",
+      "!node_modules/electron-builder/**/*"
+    ],
+    "signAndEditExecutable": false,
+    "win": {
+      "target": [
+        { "target": "nsis",     "arch": ["x64"] },
+        { "target": "portable", "arch": ["x64"] },
+        { "target": "zip",      "arch": ["x64"] }
+      ],
+      "icon": "assets/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Mandy"
+    },
+    "portable": {
+      "artifactName": "Mandy-${version}-portable.exe"
+    }
+  }
+}

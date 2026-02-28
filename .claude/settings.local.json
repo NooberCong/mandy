@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install:*)",
+      "Bash(node:*)",
+      "Bash(npm run:*)",
+      "Bash(CSC_IDENTITY_AUTO_DISCOVERY=false npm run:*)",
+      "Bash(CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder build:*)",
+      "Bash(CSC_IDENTITY_AUTO_DISCOVERY=false npx electron-builder:*)",
+      "Bash(rm:*)"
+    ]
+  }
+}
