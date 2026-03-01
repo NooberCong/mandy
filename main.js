@@ -68,10 +68,10 @@ const RECENTS_PATH = path.join(app.getPath('userData'), 'recents.json');
 
 const DEFAULT_CONFIG = {
   theme: 'dark',
-  fontFamily: 'serif',
-  fontSize: 17,
-  lineHeight: 1.75,
-  contentWidth: 720,
+  fontFamily: 'sans',
+  fontSize: 18,
+  lineHeight: 1.8,
+  contentWidth: 80,
   codeTheme: 'github-dark',
   showTOC: true,
   showWordCount: true,
@@ -287,19 +287,16 @@ ipcMain.handle('read-folder', (_, folderPath) => {
       if (e.name.startsWith('.')) continue;          // skip hidden
       if (e.isDirectory()) {
         const subtree = scanDir(path.join(dirPath, e.name));
-        if (subtree) dirs.push(subtree);             // only include if it has md content
-      } else if (e.isFile() && MD_RE.test(e.name)) {
-        files.push({ type: 'file', name: e.name, path: path.join(dirPath, e.name) });
+        if (subtree) dirs.push(subtree);
+      } else if (e.isFile()) {
+        files.push({ type: 'file', name: e.name, path: path.join(dirPath, e.name), markdown: MD_RE.test(e.name) });
       }
     }
 
     dirs.sort((a, b) => a.name.localeCompare(b.name));
     files.sort((a, b) => a.name.localeCompare(b.name));
 
-    const children = [...dirs, ...files];
-    if (children.length === 0) return null;          // prune empty dirs
-
-    return { type: 'dir', name: path.basename(dirPath), path: dirPath, children };
+    return { type: 'dir', name: path.basename(dirPath), path: dirPath, children: [...dirs, ...files] };
   }
 
   const tree = scanDir(folderPath);
@@ -318,6 +315,29 @@ ipcMain.handle('window-maximize', () => {
 ipcMain.handle('window-close', () => mainWindow.close());
 ipcMain.handle('open-file-from-path', (_, filePath) => openFile(filePath));
 ipcMain.handle('show-in-folder', (_, filePath) => shell.showItemInFolder(filePath));
+ipcMain.handle('delete-item', async (_, filePath) => {
+  const name = path.basename(filePath);
+  const { response } = await dialog.showMessageBox(mainWindow, {
+    type: 'warning',
+    buttons: ['Move to Trash', 'Cancel'],
+    defaultId: 1, cancelId: 1,
+    message: `Delete "${name}"?`,
+    detail: 'It will be moved to the Recycle Bin.',
+  });
+  if (response === 1) return false;
+  await shell.trashItem(filePath);
+  return true;
+});
+ipcMain.handle('create-file', (_, parentDir, name) => {
+  const full = path.join(parentDir, name);
+  if (!fs.existsSync(full)) fs.writeFileSync(full, '', 'utf8');
+  return full;
+});
+ipcMain.handle('create-folder', (_, parentDir, name) => {
+  const full = path.join(parentDir, name);
+  fs.mkdirSync(full, { recursive: true });
+  return full;
+});
 ipcMain.handle('get-platform', () => process.platform);
 ipcMain.handle('print', () => mainWindow.webContents.print({ silent: false, printBackground: true }));
 ipcMain.handle('get-home', () => os.homedir());

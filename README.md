@@ -33,8 +33,10 @@
 - **Smooth scroll** with custom scroll indicator
 
 ### Navigation
-- **Multi-tab interface** — open as many files as you like, each with its own scroll and view state
-- **Folder browser** — open a directory and navigate all `.md`, `.markdown`, `.mdx`, and `.txt` files
+- **Multi-tab interface** — open as many files as you like, each with its own scroll and view state; new tabs open a welcome screen
+- **Folder browser** — open a directory and browse all files; `.md`/`.markdown`/`.mdx`/`.txt` files open in Mandy, non-markdown files open with the system default app (shown slightly dimmed); folders start collapsed
+  - Hover any tree item to reveal inline action buttons: create new file (`.md`/`.txt`), create subfolder, delete file, delete folder
+- **Resizable sidebar** — drag the divider between the sidebar and content to adjust the split
 - **Table of contents** — auto-built from headings with scroll-spy highlighting
 - **Recent files** — jump back to the last 20 files with relative timestamps
 - **Find in document** — full-text search with highlighted matches and Prev/Next navigation
@@ -49,19 +51,20 @@
 ### File Handling
 - **Drag & drop** files or folders directly onto the window
 - **Smart link routing** — `.md` links open in a new tab, other files open with the system default app, URLs open in the browser
-- **Live reload** — document auto-refreshes when the file changes on disk
+- **Right-click context menu** in Preview and Split view — Copy with Markdown, Copy Plain Text, Find in Document, Find in Editor
+- **Live reload** — document auto-refreshes when the file changes on disk (on by default)
 - **Print** with print-optimised styles (`Ctrl+P`)
 
 ### Appearance & Personalisation
 - **3 themes** — Dark (default), Light, Sepia
 - **6 accent palettes** — Amber, Sky, Emerald, Violet, Rose, Teal
-- **3 font families** — Serif (Crimson Pro), Sans-serif (DM Sans), Monospace (JetBrains Mono)
-- **Configurable** font size (12–28 px), line height, and content width
+- **3 font families** — Sans-serif (DM Sans, default), Serif (Crimson Pro), Monospace (JetBrains Mono)
+- **Configurable** font size (12–28 px), line height, and content width (0–100% of the container)
 - **Focus mode** — hides the sidebar and dims chrome for distraction-free reading
 - **Zoom** — `Ctrl+=` / `Ctrl+-` / `Ctrl+0`
 
 ### Internationalisation
-- **7 languages** — English, Español, Français, Deutsch, Português, 日本語, 中文
+- **7 languages** — English, Español, Français, Deutsch, Português, 日本語, 中文 — including all tooltips, context menus, and folder tree actions
 
 ---
 

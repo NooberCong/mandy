@@ -10,7 +10,7 @@ let currentFile = null;
 let currentContent = '';
 let findMatches = [];
 let findIndex = 0;
-let liveReload = false;
+let liveReload = true;
 let viewMode = 'preview';       // 'preview' | 'split' | 'edit'
 let hasUnsavedChanges = false;
 let previewUpdateTimer = null;
@@ -60,6 +60,10 @@ const LOCALES = {
     'dlg.unsaved.title':'Unsaved Changes','dlg.unsaved.msg':'Save changes to "{name}"?',
     'dlg.unsaved.detail':"Your changes will be lost if you don't save them.",
     'dlg.unsaved.save':'Save','dlg.unsaved.dontSave':"Don't Save",'dlg.unsaved.cancel':'Cancel',
+    'tt.findPrev':'Previous match','tt.findNext':'Next match',
+    'cm.copyMd':'Copy with Markdown','cm.copyText':'Copy Plain Text','cm.findDoc':'Find in Document','cm.findEditor':'Find in Editor',
+    'tt.newFile':'New file','tt.newFolder':'New folder','tt.removeRecent':'Remove from recents','tt.delete':'Delete',
+    'copied':'Copied!','folder.newFilePh':'filename.md','folder.newFolderPh':'folder name',
   },
   es: {
     'nav.recent':'Reciente','nav.folder':'Carpeta','nav.outline':'Esquema',
@@ -99,6 +103,10 @@ const LOCALES = {
     'dlg.unsaved.title':'Cambios sin guardar','dlg.unsaved.msg':'¿Guardar cambios en "{name}"?',
     'dlg.unsaved.detail':'Los cambios se perderán si no los guardas.',
     'dlg.unsaved.save':'Guardar','dlg.unsaved.dontSave':'No guardar','dlg.unsaved.cancel':'Cancelar',
+    'tt.findPrev':'Coincidencia anterior','tt.findNext':'Siguiente coincidencia',
+    'cm.copyMd':'Copiar con Markdown','cm.copyText':'Copiar texto plano','cm.findDoc':'Buscar en el documento','cm.findEditor':'Buscar en el editor',
+    'tt.newFile':'Nuevo archivo','tt.newFolder':'Nueva carpeta','tt.removeRecent':'Eliminar de recientes','tt.delete':'Eliminar',
+    'copied':'\u00a1Copiado!','folder.newFilePh':'archivo.md','folder.newFolderPh':'nombre de carpeta',
   },
   fr: {
     'nav.recent':'R\xe9cent','nav.folder':'Dossier','nav.outline':'Plan',
@@ -138,6 +146,10 @@ const LOCALES = {
     'dlg.unsaved.title':'Modifications non enregistr\xe9es','dlg.unsaved.msg':'Enregistrer les modifications de \u00ab\u00a0{name}\u00a0\u00bb\u00a0?',
     'dlg.unsaved.detail':'Vos modifications seront perdues si vous ne les enregistrez pas.',
     'dlg.unsaved.save':'Enregistrer','dlg.unsaved.dontSave':'Ne pas enregistrer','dlg.unsaved.cancel':'Annuler',
+    'tt.findPrev':'Correspondance pr\u00e9c\u00e9dente','tt.findNext':'Correspondance suivante',
+    'cm.copyMd':'Copier avec Markdown','cm.copyText':'Copier en texte brut','cm.findDoc':'Rechercher dans le document','cm.findEditor':'Rechercher dans l\u2019\u00e9diteur',
+    'tt.newFile':'Nouveau fichier','tt.newFolder':'Nouveau dossier','tt.removeRecent':'Supprimer des r\u00e9cents','tt.delete':'Supprimer',
+    'copied':'Copi\u00e9\u00a0!','folder.newFilePh':'fichier.md','folder.newFolderPh':'nom du dossier',
   },
   de: {
     'nav.recent':'Zuletzt','nav.folder':'Ordner','nav.outline':'Gliederung',
@@ -177,6 +189,10 @@ const LOCALES = {
     'dlg.unsaved.title':'Nicht gespeicherte \xc4nderungen','dlg.unsaved.msg':'\xc4nderungen in \u201e{name}\u201c speichern?',
     'dlg.unsaved.detail':'Ihre \xc4nderungen gehen verloren, wenn Sie nicht speichern.',
     'dlg.unsaved.save':'Speichern','dlg.unsaved.dontSave':'Nicht speichern','dlg.unsaved.cancel':'Abbrechen',
+    'tt.findPrev':'Vorherige \u00dcbereinstimmung','tt.findNext':'N\u00e4chste \u00dcbereinstimmung',
+    'cm.copyMd':'Mit Markdown kopieren','cm.copyText':'Als Text kopieren','cm.findDoc':'Im Dokument suchen','cm.findEditor':'Im Editor suchen',
+    'tt.newFile':'Neue Datei','tt.newFolder':'Neuer Ordner','tt.removeRecent':'Aus Zuletzt entfernen','tt.delete':'L\u00f6schen',
+    'copied':'Kopiert!','folder.newFilePh':'datei.md','folder.newFolderPh':'Ordnername',
   },
   pt: {
     'nav.recent':'Recente','nav.folder':'Pasta','nav.outline':'Estrutura',
@@ -216,6 +232,10 @@ const LOCALES = {
     'dlg.unsaved.title':'Altera\xe7\xf5es n\xe3o guardadas','dlg.unsaved.msg':'Guardar altera\xe7\xf5es em \u201c{name}\u201d?',
     'dlg.unsaved.detail':'As suas altera\xe7\xf5es ser\xe3o perdidas se n\xe3o as guardar.',
     'dlg.unsaved.save':'Guardar','dlg.unsaved.dontSave':'N\xe3o guardar','dlg.unsaved.cancel':'Cancelar',
+    'tt.findPrev':'Correspond\u00eancia anterior','tt.findNext':'Pr\u00f3xima correspond\u00eancia',
+    'cm.copyMd':'Copiar com Markdown','cm.copyText':'Copiar texto simples','cm.findDoc':'Localizar no documento','cm.findEditor':'Localizar no editor',
+    'tt.newFile':'Novo ficheiro','tt.newFolder':'Nova pasta','tt.removeRecent':'Remover dos recentes','tt.delete':'Eliminar',
+    'copied':'Copiado!','folder.newFilePh':'ficheiro.md','folder.newFolderPh':'nome da pasta',
   },
   ja: {
     'nav.recent':'\u6700\u8fd1','nav.folder':'\u30d5\u30a9\u30eb\u30c0','nav.outline':'\u30a2\u30a6\u30c8\u30e9\u30a4\u30f3',
@@ -255,6 +275,10 @@ const LOCALES = {
     'dlg.unsaved.title':'\u672a\u4fdd\u5b58\u306e\u5909\u66f4','dlg.unsaved.msg':'\u300c{name}\u300d\u3078\u306e\u5909\u66f4\u3092\u4fdd\u5b58\u3057\u307e\u3059\u304b\uff1f',
     'dlg.unsaved.detail':'\u4fdd\u5b58\u3057\u306a\u3044\u3068\u5909\u66f4\u304c\u5931\u308f\u308c\u307e\u3059\u3002',
     'dlg.unsaved.save':'\u4fdd\u5b58','dlg.unsaved.dontSave':'\u4fdd\u5b58\u3057\u306a\u3044','dlg.unsaved.cancel':'\u30ad\u30e3\u30f3\u30bb\u30eb',
+    'tt.findPrev':'\u524d\u306e\u4e00\u81f4','tt.findNext':'\u6b21\u306e\u4e00\u81f4',
+    'cm.copyMd':'Markdown\u3067\u30b3\u30d4\u30fc','cm.copyText':'\u30c6\u30ad\u30b9\u30c8\u3068\u3057\u3066\u30b3\u30d4\u30fc','cm.findDoc':'\u30c9\u30ad\u30e5\u30e1\u30f3\u30c8\u3067\u691c\u7d22','cm.findEditor':'\u30a8\u30c7\u30a3\u30bf\u3067\u691c\u7d22',
+    'tt.newFile':'\u65b0\u3057\u3044\u30d5\u30a1\u30a4\u30eb','tt.newFolder':'\u65b0\u3057\u3044\u30d5\u30a9\u30eb\u30c0','tt.removeRecent':'\u6700\u8fd1\u304b\u3089\u524a\u9664','tt.delete':'\u524a\u9664',
+    'copied':'\u30b3\u30d4\u30fc\u3057\u307e\u3057\u305f\uff01','folder.newFilePh':'\u30d5\u30a1\u30a4\u30eb\u540d.md','folder.newFolderPh':'\u30d5\u30a9\u30eb\u30c0\u540d',
   },
   zh: {
     'nav.recent':'\u6700\u8fd1','nav.folder':'\u6587\u4ef6\u5939','nav.outline':'\u5927\u7eb2',
@@ -294,11 +318,16 @@ const LOCALES = {
     'dlg.unsaved.title':'\u672a\u4fdd\u5b58\u7684\u66f4\u6539','dlg.unsaved.msg':'\u4fdd\u5b58\u5bf9\u201c{name}\u201d\u7684\u66f4\u6539\uff1f',
     'dlg.unsaved.detail':'\u5982\u679c\u4e0d\u4fdd\u5b58\uff0c\u66f4\u6539\u5c06\u4f1a\u4e22\u5931\u3002',
     'dlg.unsaved.save':'\u4fdd\u5b58','dlg.unsaved.dontSave':'\u4e0d\u4fdd\u5b58','dlg.unsaved.cancel':'\u53d6\u6d88',
+    'tt.findPrev':'\u4e0a\u4e00\u4e2a\u5339\u914d','tt.findNext':'\u4e0b\u4e00\u4e2a\u5339\u914d',
+    'cm.copyMd':'\u590d\u5236\u4e3a Markdown','cm.copyText':'\u590d\u5236\u4e3a\u7eaf\u6587\u672c','cm.findDoc':'\u5728\u6587\u6863\u4e2d\u67e5\u627e','cm.findEditor':'\u5728\u7f16\u8f91\u5668\u4e2d\u67e5\u627e',
+    'tt.newFile':'\u65b0\u5efa\u6587\u4ef6','tt.newFolder':'\u65b0\u5efa\u6587\u4ef6\u5939','tt.removeRecent':'\u4ece\u6700\u8fd1\u79fb\u9664','tt.delete':'\u5220\u9664',
+    'copied':'\u5df2\u590d\u5236\uff01','folder.newFilePh':'\u6587\u4ef6\u540d.md','folder.newFolderPh':'\u6587\u4ef6\u5939\u540d\u79f0',
   },
 };
 
 let currentLang = 'en';
 let loadedFolderName = null; // null = no folder open yet
+let loadedFolderPath = null;
 
 function t(key) {
   return (LOCALES[currentLang] || LOCALES.en)[key] ?? LOCALES.en[key] ?? key;
@@ -608,7 +637,7 @@ function updateEditorStatus() {
   const line = lines.length;
   const col = lines[lines.length - 1].length + 1;
   dom.editorPos.textContent = `Ln ${line}, Col ${col}`;
-  dom.editorChars.textContent = `${text.length.toLocaleString()} chars`;
+  dom.editorChars.textContent = `${text.length.toLocaleString()} ${t('chars')}`;
 }
 
 // ---- Unsaved indicator ----
@@ -1280,7 +1309,7 @@ function createFileItem(r, onClick) {
       <div class="file-path" title="${escapeHtml(r.path)}">${escapeHtml(r.path)}</div>
       ${date ? `<div class="file-date">${date}</div>` : ''}
     </div>
-    <button class="file-remove" title="Remove from recents" data-path="${escapeHtml(r.path)}">
+    <button class="file-remove" title="${t('tt.removeRecent')}" data-path="${escapeHtml(r.path)}">
       <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <path d="M18 6L6 18M6 6l12 12"/>
       </svg>
@@ -1321,6 +1350,7 @@ function escapeHtml(str) {
 async function openFolder(folderPath) {
   const tree = await window.mandy.readFolder(folderPath);
   dom.folderList.innerHTML = '';
+  loadedFolderPath = folderPath;
   loadedFolderName = folderPath.split(/[/\\]/).pop();
   dom.folderName.textContent = loadedFolderName;
 
@@ -1349,7 +1379,8 @@ function buildTree(nodes, depth) {
 
 function buildDirNode(node, depth) {
   const wrap = document.createElement('div');
-  wrap.className = 'tree-dir open';           // top-level dirs open by default
+  wrap.className = 'tree-dir';
+  wrap.dataset.path = node.path;
 
   const header = document.createElement('div');
   header.className = 'tree-dir-header';
@@ -1361,20 +1392,118 @@ function buildDirNode(node, depth) {
     <svg class="tree-folder-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
       <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
     </svg>
-    <span>${escapeHtml(node.name)}</span>
+    <span class="tree-dir-name" title="${escapeHtml(node.name)}">${escapeHtml(node.name)}</span>
+    <span class="tree-dir-actions">
+      <button class="tree-action-btn" data-action="new-file" title="${t('tt.newFile')}">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>
+          <line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/>
+        </svg>
+      </button>
+      <button class="tree-action-btn" data-action="new-folder" title="${t('tt.newFolder')}">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+          <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+          <line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/>
+        </svg>
+      </button>
+      <button class="tree-action-btn" data-action="delete-folder" title="${t('tt.delete')}">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+          <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/>
+          <path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/>
+        </svg>
+      </button>
+    </span>
   `;
-  header.onclick = () => wrap.classList.toggle('open');
 
   const children = buildTree(node.children, depth + 1);
+
+  header.querySelector('[data-action="new-file"]').addEventListener('click', e => {
+    e.stopPropagation();
+    wrap.classList.add('open');
+    startInlineCreate('file', node.path, children);
+  });
+  header.querySelector('[data-action="new-folder"]').addEventListener('click', e => {
+    e.stopPropagation();
+    wrap.classList.add('open');
+    startInlineCreate('folder', node.path, children);
+  });
+  header.querySelector('[data-action="delete-folder"]').addEventListener('click', async e => {
+    e.stopPropagation();
+    const deleted = await window.mandy.deleteItem(node.path);
+    if (!deleted) return;
+    const norm = node.path.replace(/\\/g, '/');
+    for (const tab of [...tabs]) {
+      if (tab.path && tab.path.replace(/\\/g, '/').startsWith(norm + '/')) {
+        await closeTab(tab.id);
+      }
+    }
+    const expanded = new Set([...$$('.tree-dir.open', dom.folderList)].map(el => el.dataset.path));
+    await openFolder(loadedFolderPath);
+    $$('.tree-dir', dom.folderList).forEach(el => { if (expanded.has(el.dataset.path)) el.classList.add('open'); });
+  });
+  header.addEventListener('click', e => {
+    if (!e.target.closest('.tree-dir-actions')) wrap.classList.toggle('open');
+  });
 
   wrap.appendChild(header);
   wrap.appendChild(children);
   return wrap;
 }
 
+function startInlineCreate(type, parentPath, groupEl) {
+  const existing = groupEl.querySelector('.tree-inline-create');
+  if (existing) { existing.querySelector('input').focus(); return; }
+
+  const row = document.createElement('div');
+  row.className = 'tree-inline-create';
+  const icon = type === 'file'
+    ? `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>`
+    : `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>`;
+  row.innerHTML = `${icon}<input class="tree-inline-input" type="text" placeholder="${t(type === 'file' ? 'folder.newFilePh' : 'folder.newFolderPh')}" spellcheck="false"/>`;
+  groupEl.prepend(row);
+
+  const input = row.querySelector('input');
+  input.focus();
+
+  let committed = false;
+  async function commit() {
+    let name = input.value.trim();
+    if (!name) { row.remove(); return; }
+    if (type === 'file') {
+      const validExt = /\.(md|txt)$/i;
+      if (!validExt.test(name)) {
+        // default to .md if no valid extension given
+        name = name.replace(/\.[^.]*$/, '') || name;
+        name = name + '.md';
+        input.value = name;
+      }
+    }
+    committed = true;
+    try {
+      const fullPath = type === 'file'
+        ? await window.mandy.createFile(parentPath, name)
+        : await window.mandy.createFolder(parentPath, name);
+      const expanded = new Set([...$$('.tree-dir.open', dom.folderList)].map(el => el.dataset.path));
+      expanded.add(parentPath); // ensure the parent stays open
+      await openFolder(loadedFolderPath);
+      $$('.tree-dir', dom.folderList).forEach(el => { if (expanded.has(el.dataset.path)) el.classList.add('open'); });
+      if (type === 'file') window.mandy.openFileFromPath(fullPath);
+    } catch (err) {
+      committed = false;
+      input.select();
+    }
+  }
+
+  input.addEventListener('keydown', e => {
+    if (e.key === 'Enter')  { e.preventDefault(); commit(); }
+    if (e.key === 'Escape') { row.remove(); }
+  });
+  input.addEventListener('blur', () => { if (!committed) setTimeout(() => row.remove(), 120); });
+}
+
 function buildFileNode(node, depth) {
   const div = document.createElement('div');
-  div.className = 'file-item tree-file';
+  div.className = 'file-item tree-file' + (node.markdown ? '' : ' tree-file-other');
   div.dataset.path = node.path;
   if (node.path === currentFile) div.classList.add('active');
   div.style.paddingLeft = (depth * 14 + 8) + 'px';
@@ -1384,10 +1513,32 @@ function buildFileNode(node, depth) {
       <polyline points="14 2 14 8 20 8"/>
     </svg>
     <div class="file-info">
-      <div class="file-name">${escapeHtml(node.name)}</div>
+      <div class="file-name" title="${escapeHtml(node.name)}">${escapeHtml(node.name)}</div>
     </div>
+    <button class="file-remove" title="${t('tt.delete')}">
+      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+        <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/>
+        <path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/>
+      </svg>
+    </button>
   `;
-  div.onclick = () => window.mandy.openFileFromPath(node.path);
+  div.querySelector('.file-remove').addEventListener('click', async e => {
+    e.stopPropagation();
+    const deleted = await window.mandy.deleteItem(node.path);
+    if (!deleted) return;
+    // Close any open tab for this file
+    const tab = tabs.find(t => t.path === node.path);
+    if (tab) await closeTab(tab.id);
+    // Remove from recents
+    window.mandy.removeRecent(node.path);
+    // Refresh tree preserving expanded state
+    const expanded = new Set([...$$('.tree-dir.open', dom.folderList)].map(el => el.dataset.path));
+    await openFolder(loadedFolderPath);
+    $$('.tree-dir', dom.folderList).forEach(el => { if (expanded.has(el.dataset.path)) el.classList.add('open'); });
+  });
+  div.onclick = () => node.markdown
+    ? window.mandy.openFileFromPath(node.path)
+    : window.mandy.handleLink(node.path, null);
   return div;
 }
 
@@ -1411,7 +1562,7 @@ function updateProgress() {
 
 function updateScrollPos() {
   const sc = dom.scrollContainer;
-  const approx = Math.floor(sc.scrollTop / (parseFloat(cfg.fontSize || 17) * parseFloat(cfg.lineHeight || 1.75)));
+  const approx = Math.floor(sc.scrollTop / (parseFloat(cfg.fontSize || 18) * parseFloat(cfg.lineHeight || 1.8)));
   dom.statusPos.textContent = `Ln ${approx}`;
 }
 
@@ -1669,12 +1820,12 @@ function syncSettingsUI() {
   $$('.palette-btn').forEach(b => b.classList.toggle('active', b.dataset.palette === (cfg.palette || 'amber')));
   const langEl = $('#cfg-language');
   if (langEl) langEl.value = cfg.language || 'en';
-  $('#cfg-font-size').value = cfg.fontSize || 17;
-  $('#val-font-size').textContent = (cfg.fontSize || 17) + 'px';
-  $('#cfg-line-height').value = cfg.lineHeight || 1.75;
-  $('#val-line-height').textContent = (cfg.lineHeight || 1.75).toFixed(2);
-  $('#cfg-content-width').value = cfg.contentWidth || 720;
-  $('#val-content-width').textContent = (cfg.contentWidth || 720) + 'px';
+  $('#cfg-font-size').value = cfg.fontSize || 18;
+  $('#val-font-size').textContent = (cfg.fontSize || 18) + 'px';
+  $('#cfg-line-height').value = cfg.lineHeight || 1.8;
+  $('#val-line-height').textContent = (cfg.lineHeight || 1.8).toFixed(2);
+  $('#cfg-content-width').value = cfg.contentWidth ?? 80;
+  $('#val-content-width').textContent = (cfg.contentWidth ?? 80) + '%';
   $('#cfg-code-theme').value = cfg.codeTheme || 'github-dark';
   $('#cfg-live-reload').checked = liveReload;
   $('#cfg-word-count').checked = cfg.showWordCount !== false;
@@ -1687,9 +1838,11 @@ function applyConfig() {
   const pal = cfg.palette || 'amber';
   if (pal === 'amber') delete dom.body.dataset.palette;
   else dom.body.dataset.palette = pal;
-  const fs = (cfg.fontSize || 17) + 'px';
-  const lh = cfg.lineHeight || 1.75;
-  const cw = (cfg.contentWidth || 720) + 'px';
+  const fs = (cfg.fontSize || 18) + 'px';
+  const lh = cfg.lineHeight || 1.8;
+  // Migrate legacy px values (> 100 means old px-based setting)
+  if ((cfg.contentWidth || 0) > 100) cfg.contentWidth = 80;
+  const cw = (cfg.contentWidth ?? 80) + '%';
   document.documentElement.style.setProperty('--font-size', fs);
   document.documentElement.style.setProperty('--line-height', lh);
   document.documentElement.style.setProperty('--content-width', cw);
@@ -1706,9 +1859,9 @@ function autosave() {
   cfg.fontFamily   = $('button.font-btn.active')?.dataset.font      || cfg.fontFamily;
   cfg.palette      = $('button.palette-btn.active')?.dataset.palette || cfg.palette || 'amber';
   cfg.language     = $('#cfg-language')?.value                       || cfg.language || 'en';
-  cfg.fontSize     = parseInt($('#cfg-font-size').value)             || 17;
-  cfg.lineHeight   = parseFloat($('#cfg-line-height').value)         || 1.75;
-  cfg.contentWidth = parseInt($('#cfg-content-width').value)         || 720;
+  cfg.fontSize     = parseInt($('#cfg-font-size').value)             || 18;
+  cfg.lineHeight   = parseFloat($('#cfg-line-height').value)         || 1.8;
+  cfg.contentWidth = parseInt($('#cfg-content-width').value)         ?? 80;
   cfg.codeTheme    = $('#cfg-code-theme').value;
   cfg.showWordCount = $('#cfg-word-count').checked;
   cfg.smoothScroll  = $('#cfg-smooth-scroll').checked;
@@ -1743,7 +1896,7 @@ window.__copyCode = function(btn) {
   if (!code) return;
   navigator.clipboard.writeText(code.textContent).then(() => {
     const orig = btn.innerHTML;
-    btn.textContent = 'Copied!';
+    btn.textContent = t('copied');
     btn.classList.add('copied');
     setTimeout(() => { btn.innerHTML = orig; btn.classList.remove('copied'); }, 2000);
   }).catch(() => {});
@@ -1847,7 +2000,7 @@ function setupKeyboard() {
 // ---- Main init ----
 async function init() {
   cfg = await window.mandy.getConfig();
-  liveReload = cfg.liveReload || false;
+  liveReload = cfg.liveReload ?? true;
 
   applyConfig();
   setLanguage(cfg.language || 'en');
@@ -1866,6 +2019,41 @@ async function init() {
 
   // Sidebar toggle button
   $('#sidebar-toggle').onclick = () => toggleSidebar();
+
+  // Sidebar resize handle
+  (function() {
+    const resizer = $('#sidebar-resizer');
+    let startX, startW;
+    resizer.addEventListener('mousedown', e => {
+      startX = e.clientX;
+      startW = dom.sidebar.offsetWidth;
+      resizer.classList.add('dragging');
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+
+      function onMove(e) {
+        const w = Math.min(480, Math.max(160, startW + (e.clientX - startX)));
+        document.documentElement.style.setProperty('--sidebar-w', w + 'px');
+      }
+      function onUp() {
+        resizer.classList.remove('dragging');
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+        const w = dom.sidebar.offsetWidth;
+        cfg.sidebarWidth = w;
+        autosave();
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+      }
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    });
+
+    // Restore saved sidebar width
+    if (cfg.sidebarWidth) {
+      document.documentElement.style.setProperty('--sidebar-w', cfg.sidebarWidth + 'px');
+    }
+  })();
 
   // Titlebar buttons
   $('#btn-find').onclick = openFind;
@@ -1891,7 +2079,7 @@ async function init() {
   // Settings
   $('#settings-close').onclick = closeSettings;
   $('#settings-reset').onclick = () => {
-    cfg = { theme:'dark', fontFamily:'serif', fontSize:17, lineHeight:1.75, contentWidth:720, codeTheme:'github-dark', showWordCount:true, smoothScroll:true, zoom:1, liveReload:false, palette:'amber', language:'en' };
+    cfg = { theme:'dark', fontFamily:'sans', fontSize:18, lineHeight:1.8, contentWidth:80, codeTheme:'github-dark', showWordCount:true, smoothScroll:true, zoom:1, liveReload:true, palette:'amber', language:'en' };
     liveReload = false;
     setLanguage('en');
     applyConfig();
@@ -1918,9 +2106,9 @@ async function init() {
   };
   $('#cfg-content-width').oninput = function() {
     const v = parseInt(this.value);
-    $('#val-content-width').textContent = v + 'px';
-    document.documentElement.style.setProperty('--content-width', v + 'px');
-    $('#content-wrap').style.maxWidth = v + 'px';
+    $('#val-content-width').textContent = v + '%';
+    document.documentElement.style.setProperty('--content-width', v + '%');
+    $('#content-wrap').style.maxWidth = v + '%';
     autosave();
   };
   $('#cfg-code-theme').onchange = function() {

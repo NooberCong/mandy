@@ -68,10 +68,10 @@
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
     <input id="find-input" type="text" placeholder="Find in document…" data-i18n-placeholder="find.placeholder" autocomplete="off" spellcheck="false"/>
     <span id="find-count"></span>
-    <button id="find-prev" title="Previous">
+    <button id="find-prev" title="Previous match" data-i18n-title="tt.findPrev">
       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M15 18l-6-6 6-6"/></svg>
     </button>
-    <button id="find-next" title="Next">
+    <button id="find-next" title="Next match" data-i18n-title="tt.findNext">
       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 18l6-6-6-6"/></svg>
     </button>
     <button id="find-close">
@@ -143,6 +143,9 @@
     <button id="sidebar-toggle" title="Toggle sidebar (Ctrl+B)" data-i18n-title="tt.sidebar">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/></svg>
     </button>
+
+    <!-- Sidebar resize handle -->
+    <div id="sidebar-resizer"></div>
 
     <!-- Main content -->
     <main id="main">
@@ -326,7 +329,7 @@
           <h3 data-i18n="set.layout">Layout</h3>
           <div class="setting-row">
             <label><span data-i18n="set.contentWidth">Content Width</span> <span class="setting-value" id="val-content-width">720px</span></label>
-            <input type="range" id="cfg-content-width" min="480" max="1200" step="20" />
+            <input type="range" id="cfg-content-width" min="0" max="100" step="1" />
           </div>
         </section>
 
@@ -394,11 +397,11 @@
 
   <!-- Preview context menu -->
   <div id="preview-context-menu" class="hidden">
-    <button id="cm-copy-md">Copy with Markdown</button>
-    <button id="cm-copy-text">Copy Plain Text</button>
+    <button id="cm-copy-md" data-i18n="cm.copyMd">Copy with Markdown</button>
+    <button id="cm-copy-text" data-i18n="cm.copyText">Copy Plain Text</button>
     <div class="cm-sep"></div>
-    <button id="cm-find">Find in Document</button>
-    <button id="cm-find-editor">Find in Editor</button>
+    <button id="cm-find" data-i18n="cm.findDoc">Find in Document</button>
+    <button id="cm-find-editor" data-i18n="cm.findEditor">Find in Editor</button>
   </div>
 
   <script src="renderer.js"></script>
