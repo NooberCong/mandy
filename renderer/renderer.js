@@ -61,7 +61,7 @@ const LOCALES = {
     'dlg.unsaved.detail':"Your changes will be lost if you don't save them.",
     'dlg.unsaved.save':'Save','dlg.unsaved.dontSave':"Don't Save",'dlg.unsaved.cancel':'Cancel',
     'tt.findPrev':'Previous match','tt.findNext':'Next match',
-    'cm.copyMd':'Copy with Markdown','cm.copyText':'Copy Plain Text','cm.findDoc':'Find in Document','cm.findEditor':'Find in Editor',
+    'cm.cut':'Cut','cm.copy':'Copy','cm.paste':'Paste','cm.copyMd':'Copy with Markdown','cm.copyText':'Copy Plain Text','cm.findDoc':'Find in Document','cm.findEditor':'Find in Editor',
     'tt.newFile':'New file','tt.newFolder':'New folder','tt.removeRecent':'Remove from recents','tt.delete':'Delete',
     'copied':'Copied!','folder.newFilePh':'filename.md','folder.newFolderPh':'folder name',
   },
@@ -104,7 +104,7 @@ const LOCALES = {
     'dlg.unsaved.detail':'Los cambios se perderán si no los guardas.',
     'dlg.unsaved.save':'Guardar','dlg.unsaved.dontSave':'No guardar','dlg.unsaved.cancel':'Cancelar',
     'tt.findPrev':'Coincidencia anterior','tt.findNext':'Siguiente coincidencia',
-    'cm.copyMd':'Copiar con Markdown','cm.copyText':'Copiar texto plano','cm.findDoc':'Buscar en el documento','cm.findEditor':'Buscar en el editor',
+    'cm.cut':'Cortar','cm.copy':'Copiar','cm.paste':'Pegar','cm.copyMd':'Copiar con Markdown','cm.copyText':'Copiar texto plano','cm.findDoc':'Buscar en el documento','cm.findEditor':'Buscar en el editor',
     'tt.newFile':'Nuevo archivo','tt.newFolder':'Nueva carpeta','tt.removeRecent':'Eliminar de recientes','tt.delete':'Eliminar',
     'copied':'\u00a1Copiado!','folder.newFilePh':'archivo.md','folder.newFolderPh':'nombre de carpeta',
   },
@@ -147,7 +147,7 @@ const LOCALES = {
     'dlg.unsaved.detail':'Vos modifications seront perdues si vous ne les enregistrez pas.',
     'dlg.unsaved.save':'Enregistrer','dlg.unsaved.dontSave':'Ne pas enregistrer','dlg.unsaved.cancel':'Annuler',
     'tt.findPrev':'Correspondance pr\u00e9c\u00e9dente','tt.findNext':'Correspondance suivante',
-    'cm.copyMd':'Copier avec Markdown','cm.copyText':'Copier en texte brut','cm.findDoc':'Rechercher dans le document','cm.findEditor':'Rechercher dans l\u2019\u00e9diteur',
+    'cm.cut':'Couper','cm.copy':'Copier','cm.paste':'Coller','cm.copyMd':'Copier avec Markdown','cm.copyText':'Copier en texte brut','cm.findDoc':'Rechercher dans le document','cm.findEditor':'Rechercher dans l\u2019\u00e9diteur',
     'tt.newFile':'Nouveau fichier','tt.newFolder':'Nouveau dossier','tt.removeRecent':'Supprimer des r\u00e9cents','tt.delete':'Supprimer',
     'copied':'Copi\u00e9\u00a0!','folder.newFilePh':'fichier.md','folder.newFolderPh':'nom du dossier',
   },
@@ -190,7 +190,7 @@ const LOCALES = {
     'dlg.unsaved.detail':'Ihre \xc4nderungen gehen verloren, wenn Sie nicht speichern.',
     'dlg.unsaved.save':'Speichern','dlg.unsaved.dontSave':'Nicht speichern','dlg.unsaved.cancel':'Abbrechen',
     'tt.findPrev':'Vorherige \u00dcbereinstimmung','tt.findNext':'N\u00e4chste \u00dcbereinstimmung',
-    'cm.copyMd':'Mit Markdown kopieren','cm.copyText':'Als Text kopieren','cm.findDoc':'Im Dokument suchen','cm.findEditor':'Im Editor suchen',
+    'cm.cut':'Ausschneiden','cm.copy':'Kopieren','cm.paste':'Einfügen','cm.copyMd':'Mit Markdown kopieren','cm.copyText':'Als Text kopieren','cm.findDoc':'Im Dokument suchen','cm.findEditor':'Im Editor suchen',
     'tt.newFile':'Neue Datei','tt.newFolder':'Neuer Ordner','tt.removeRecent':'Aus Zuletzt entfernen','tt.delete':'L\u00f6schen',
     'copied':'Kopiert!','folder.newFilePh':'datei.md','folder.newFolderPh':'Ordnername',
   },
@@ -233,7 +233,7 @@ const LOCALES = {
     'dlg.unsaved.detail':'As suas altera\xe7\xf5es ser\xe3o perdidas se n\xe3o as guardar.',
     'dlg.unsaved.save':'Guardar','dlg.unsaved.dontSave':'N\xe3o guardar','dlg.unsaved.cancel':'Cancelar',
     'tt.findPrev':'Correspond\u00eancia anterior','tt.findNext':'Pr\u00f3xima correspond\u00eancia',
-    'cm.copyMd':'Copiar com Markdown','cm.copyText':'Copiar texto simples','cm.findDoc':'Localizar no documento','cm.findEditor':'Localizar no editor',
+    'cm.cut':'Cortar','cm.copy':'Copiar','cm.paste':'Colar','cm.copyMd':'Copiar com Markdown','cm.copyText':'Copiar texto simples','cm.findDoc':'Localizar no documento','cm.findEditor':'Localizar no editor',
     'tt.newFile':'Novo ficheiro','tt.newFolder':'Nova pasta','tt.removeRecent':'Remover dos recentes','tt.delete':'Eliminar',
     'copied':'Copiado!','folder.newFilePh':'ficheiro.md','folder.newFolderPh':'nome da pasta',
   },
@@ -319,7 +319,7 @@ const LOCALES = {
     'dlg.unsaved.detail':'\u5982\u679c\u4e0d\u4fdd\u5b58\uff0c\u66f4\u6539\u5c06\u4f1a\u4e22\u5931\u3002',
     'dlg.unsaved.save':'\u4fdd\u5b58','dlg.unsaved.dontSave':'\u4e0d\u4fdd\u5b58','dlg.unsaved.cancel':'\u53d6\u6d88',
     'tt.findPrev':'\u4e0a\u4e00\u4e2a\u5339\u914d','tt.findNext':'\u4e0b\u4e00\u4e2a\u5339\u914d',
-    'cm.copyMd':'\u590d\u5236\u4e3a Markdown','cm.copyText':'\u590d\u5236\u4e3a\u7eaf\u6587\u672c','cm.findDoc':'\u5728\u6587\u6863\u4e2d\u67e5\u627e','cm.findEditor':'\u5728\u7f16\u8f91\u5668\u4e2d\u67e5\u627e',
+    'cm.cut':'剪切','cm.copy':'复制','cm.paste':'粘贴','cm.copyMd':'\u590d\u5236\u4e3a Markdown','cm.copyText':'\u590d\u5236\u4e3a\u7eaf\u6587\u672c','cm.findDoc':'\u5728\u6587\u6863\u4e2d\u67e5\u627e','cm.findEditor':'\u5728\u7f16\u8f91\u5668\u4e2d\u67e5\u627e',
     'tt.newFile':'\u65b0\u5efa\u6587\u4ef6','tt.newFolder':'\u65b0\u5efa\u6587\u4ef6\u5939','tt.removeRecent':'\u4ece\u6700\u8fd1\u79fb\u9664','tt.delete':'\u5220\u9664',
     'copied':'\u5df2\u590d\u5236\uff01','folder.newFilePh':'\u6587\u4ef6\u540d.md','folder.newFolderPh':'\u6587\u4ef6\u5939\u540d\u79f0',
   },
@@ -827,6 +827,9 @@ async function saveFile() {
     if (activeTab) { activeTab.unsaved = false; activeTab.content = content; }
     updateUnsavedIndicator();
     renderTabBar();
+    const recents = await window.mandy.addRecent(currentFile);
+    updateRecentsList(recents);
+    updateWelcomeRecents(recents);
     // Re-render preview with saved content
     const html = await renderMarkdown(content);
     dom.mdContent.innerHTML = html;
@@ -1709,6 +1712,60 @@ function htmlToMd(node) {
   }, true);
 })();
 
+(function initEditorContextMenu() {
+  const menu = document.getElementById('editor-context-menu');
+  const ta   = dom.editorTextarea;
+
+  function hideMenu() { menu.classList.add('hidden'); }
+
+  function showMenu(x, y) {
+    menu.classList.remove('hidden');
+    const mw = menu.offsetWidth, mh = menu.offsetHeight;
+    menu.style.left = Math.min(x, window.innerWidth  - mw - 4) + 'px';
+    menu.style.top  = Math.min(y, window.innerHeight - mh - 4) + 'px';
+  }
+
+  ta.addEventListener('contextmenu', e => {
+    e.preventDefault();
+    showMenu(e.clientX, e.clientY);
+  });
+
+  document.getElementById('ecm-cut').onclick = () => {
+    ta.focus();
+    document.execCommand('cut');
+    hideMenu();
+  };
+
+  document.getElementById('ecm-copy').onclick = () => {
+    ta.focus();
+    document.execCommand('copy');
+    hideMenu();
+  };
+
+  document.getElementById('ecm-paste').onclick = () => {
+    navigator.clipboard.readText().then(text => {
+      const s = ta.selectionStart, e2 = ta.selectionEnd;
+      ta.value = ta.value.slice(0, s) + text + ta.value.slice(e2);
+      ta.selectionStart = ta.selectionEnd = s + text.length;
+      ta.dispatchEvent(new Event('input'));
+    });
+    hideMenu();
+  };
+
+  document.getElementById('ecm-find').onclick = () => {
+    const text = ta.value.slice(ta.selectionStart, ta.selectionEnd).trim();
+    hideMenu();
+    openFind(text || undefined);
+  };
+
+  document.addEventListener('mousedown', e => {
+    if (!menu.classList.contains('hidden') && !menu.contains(e.target)) hideMenu();
+  });
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && !menu.classList.contains('hidden')) { hideMenu(); e.stopPropagation(); }
+  }, true);
+})();
+
 // ---- Find ----
 let findTimeout;
 
@@ -1973,8 +2030,14 @@ function setupKeyboard() {
     if (mod && e.key === 'n') { e.preventDefault(); newFile(); }
     if (mod && e.key === 's') { e.preventDefault(); saveFile(); }
     if (mod && e.key === ',') { e.preventDefault(); openSettings(); }
-    // Ctrl+F: open find (not in editor, where it may be native)
-    if (mod && e.key === 'f' && !inEditor) { e.preventDefault(); openFind(); }
+    // Ctrl+F: open find; in editor, pre-fill with the current selection
+    if (mod && e.key === 'f') {
+      e.preventDefault();
+      const sel = inEditor
+        ? dom.editorTextarea.value.slice(dom.editorTextarea.selectionStart, dom.editorTextarea.selectionEnd).trim()
+        : (window.getSelection()?.toString()?.trim() || '');
+      openFind(sel || undefined);
+    }
     if (mod && e.key === 'b' && !inEditor) { e.preventDefault(); toggleSidebar(); }
     if (mod && e.key === '=' && !inEditor) { e.preventDefault(); applyZoom((cfg.zoom || 1) + 0.1); }
     if (mod && e.key === '-' && !inEditor) { e.preventDefault(); applyZoom((cfg.zoom || 1) - 0.1); }

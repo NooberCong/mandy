@@ -148,8 +148,8 @@ function createWindow() {
   mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
 
   // Store a file path requested at launch so the renderer can pull it once init() finishes.
-  const fileArg = app.isPackaged ? process.argv[1] : process.argv[2];
-  if (fileArg && fs.existsSync(fileArg)) pendingLaunchFile = fileArg;
+  const fileArg = process.argv.find(arg => !arg.startsWith('-') && /\.(md|markdown|mdx|txt)$/i.test(arg) && fs.existsSync(arg));
+  if (fileArg) pendingLaunchFile = fileArg;
 
   mainWindow.once('ready-to-show', () => mainWindow.show());
 
@@ -421,7 +421,22 @@ ipcMain.handle('watch-file', (_, filePath) => {
   } catch {}
 });
 
-app.whenReady().then(createWindow);
+// Single-instance lock — forward file-open attempts to the existing window
+const gotLock = app.requestSingleInstanceLock();
+if (!gotLock) {
+  app.quit();
+} else {
+  app.on('second-instance', (_, argv) => {
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.focus();
+    }
+    const fileArg = argv.find(arg => !arg.startsWith('-') && /\.(md|markdown|mdx|txt)$/i.test(arg) && fs.existsSync(arg));
+    if (fileArg) openFile(fileArg);
+  });
+  app.whenReady().then(createWindow);
+}
+
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
 app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 app.on('open-file', (e, filePath) => { e.preventDefault(); if (mainWindow) openFile(filePath); });

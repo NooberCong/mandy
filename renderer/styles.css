@@ -1412,8 +1412,9 @@ select option { background: var(--bg2); }
   flex-shrink: 0;
 }
 
-/* ---- Preview context menu ---- */
-#preview-context-menu {
+/* ---- Context menus (preview + editor) ---- */
+#preview-context-menu,
+#editor-context-menu {
   position: fixed;
   background: var(--bg2);
   border: 1px solid var(--border2);
@@ -1424,8 +1425,10 @@ select option { background: var(--bg2); }
   z-index: 500;
   animation: fadeIn 80ms ease;
 }
-#preview-context-menu.hidden { display: none; }
-#preview-context-menu button {
+#preview-context-menu.hidden,
+#editor-context-menu.hidden { display: none; }
+#preview-context-menu button,
+#editor-context-menu button {
   display: block;
   width: 100%;
   text-align: left;
@@ -1435,12 +1438,15 @@ select option { background: var(--bg2); }
   border-radius: var(--radius-sm);
   transition: background var(--transition);
 }
-#preview-context-menu button:hover { background: var(--bg4); }
-#preview-context-menu button:disabled {
+#preview-context-menu button:hover,
+#editor-context-menu button:hover { background: var(--bg4); }
+#preview-context-menu button:disabled,
+#editor-context-menu button:disabled {
   color: var(--text3);
   cursor: default;
 }
-#preview-context-menu button:disabled:hover { background: none; }
+#preview-context-menu button:disabled:hover,
+#editor-context-menu button:disabled:hover { background: none; }
 .cm-sep {
   height: 1px;
   background: var(--border);
