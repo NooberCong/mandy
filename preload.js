@@ -30,8 +30,9 @@ contextBridge.exposeInMainWorld('mandy', {
   minimize:    () => ipcRenderer.invoke('window-minimize'),
   maximize:    () => ipcRenderer.invoke('window-maximize'),
   close:       () => ipcRenderer.invoke('window-close'),
-  getPlatform: () => ipcRenderer.invoke('get-platform'),
-  getHome:     () => ipcRenderer.invoke('get-home'),
+  getPlatform:     () => ipcRenderer.invoke('get-platform'),
+  getHome:         () => ipcRenderer.invoke('get-home'),
+  getPendingFile:  () => ipcRenderer.invoke('get-pending-file'),
 
   // Events from main
   onFileOpened:  (cb) => ipcRenderer.on('file-opened',  (_, d) => cb(d)),

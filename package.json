@@ -42,6 +42,11 @@
       "!node_modules/electron/**/*",
       "!node_modules/electron-builder/**/*"
     ],
+    "fileAssociations": [
+      { "ext": "md",       "name": "Markdown File", "description": "Markdown Document", "role": "Editor" },
+      { "ext": "markdown", "name": "Markdown File", "description": "Markdown Document", "role": "Editor" },
+      { "ext": "mdx",      "name": "MDX File",      "description": "MDX Document",      "role": "Editor" }
+    ],
     "win": {
       "target": [
         { "target": "nsis",     "arch": ["x64"] },

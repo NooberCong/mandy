@@ -119,6 +119,7 @@ function addRecent(filePath) {
 }
 
 let mainWindow;
+let pendingLaunchFile = null;
 
 function createWindow() {
   const cfg = loadConfig();
@@ -146,12 +147,11 @@ function createWindow() {
 
   mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
 
-  mainWindow.once('ready-to-show', () => {
-    mainWindow.show();
-    if (process.argv[2] && fs.existsSync(process.argv[2])) {
-      openFile(process.argv[2]);
-    }
-  });
+  // Store a file path requested at launch so the renderer can pull it once init() finishes.
+  const fileArg = app.isPackaged ? process.argv[1] : process.argv[2];
+  if (fileArg && fs.existsSync(fileArg)) pendingLaunchFile = fileArg;
+
+  mainWindow.once('ready-to-show', () => mainWindow.show());
 
   mainWindow.on('maximize', () => mainWindow.webContents.send('window-state', 'maximized'));
   mainWindow.on('unmaximize', () => mainWindow.webContents.send('window-state', 'normal'));
@@ -321,6 +321,7 @@ ipcMain.handle('show-in-folder', (_, filePath) => shell.showItemInFolder(filePat
 ipcMain.handle('get-platform', () => process.platform);
 ipcMain.handle('print', () => mainWindow.webContents.print({ silent: false, printBackground: true }));
 ipcMain.handle('get-home', () => os.homedir());
+ipcMain.handle('get-pending-file', () => { const f = pendingLaunchFile; pendingLaunchFile = null; return f; });
 
 ipcMain.handle('handle-link', (_, href, currentFilePath) => {
   // Any scheme URL (http, https, mailto, ftp, …) → system default browser/handler

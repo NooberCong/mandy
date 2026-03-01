@@ -2068,6 +2068,12 @@ async function init() {
   dom.viewer.classList.add('hidden');
   dom.welcome.classList.remove('hidden');
   renderTabBar();
+
+  // Pull any file that was passed at launch (e.g. double-clicking a .md file).
+  // We do this here, after onFileOpened is registered, to avoid the timing race
+  // where ready-to-show fires before the listener is set up.
+  const pendingFile = await window.mandy.getPendingFile();
+  if (pendingFile) window.mandy.openFileFromPath(pendingFile);
 }
 
 init().catch(console.error);
