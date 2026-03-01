@@ -95,11 +95,33 @@ Grab the latest build from the [**Releases**](https://github.com/NooberCong/mand
 
 | File | Description |
 |---|---|
-| `Mandy Setup x.x.x.exe` | Windows installer — adds Start Menu shortcut, choose install directory |
+| `Mandy Setup x.x.x.exe` | Windows installer (recommended) |
 | `Mandy-x.x.x-portable.exe` | Portable — single executable, no installation required |
 | `Mandy-x.x.x-win.zip` | Zip archive |
 
 > **Windows only** for now. macOS / Linux builds are not yet available.
+
+### Installer (`Mandy Setup x.x.x.exe`) — recommended
+
+The standard installer registers Mandy with Windows so it appears as a recommended app when you open a `.md`, `.markdown`, or `.mdx` file.
+
+1. Run `Mandy Setup x.x.x.exe`
+2. Choose an install directory (or accept the default)
+3. Click **Install**
+
+After installation, double-clicking any Markdown file will offer Mandy as the app to open it. You can set it as the default by right-clicking a `.md` file → **Open with → Choose another app → Mandy → Always**.
+
+### Portable (`Mandy-x.x.x-portable.exe`) — no installation
+
+A self-contained single executable — just run it. No files are written to your system beyond settings stored in `%APPDATA%\Mandy`.
+
+- No admin rights required
+- Copy it to a USB drive or any folder and run it from there
+- Does **not** register file associations (`.md` files won't open with Mandy by double-click)
+
+### Zip archive (`Mandy-x.x.x-win.zip`)
+
+Extract anywhere and run `Mandy.exe` inside. Behaviour is the same as the portable build — no file associations registered.
 
 ---
 
