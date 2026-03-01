@@ -14,6 +14,22 @@ const COPY_BTN =
   `<rect x="9" y="9" width="13" height="13" rx="2"/>` +
   `<path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Copy</button>`;
 
+// Rewrite relative image src attributes to absolute file:// URLs so Electron can
+// load them regardless of where renderer/index.html lives on disk.
+function resolveLocalPaths(html, filePath) {
+  if (!filePath) return html;
+  const dir = path.dirname(filePath);
+  // Match each <img ...> tag, then rewrite its src if it's a relative path.
+  // Two-step avoids the attribute-order problem (src may be first or last).
+  return html.replace(/<img\b[^>]*>/gi, imgTag =>
+    imgTag.replace(/(\bsrc=")([^"]+)(")/i, (_, pre, src, post) => {
+      if (/^(https?|data|file|blob):/i.test(src)) return _;
+      const abs = path.resolve(dir, decodeURIComponent(src)).replace(/\\/g, '/');
+      return `${pre}file:///${abs}${post}`;
+    })
+  );
+}
+
 // Post-process marked's default HTML: find <pre><code> blocks and add hljs + header.
 // Marked already HTML-escapes the code content, so unlabelled blocks are safe as-is.
 function enhanceCodeBlocks(html) {
@@ -231,7 +247,7 @@ async function openFolderDialog() {
 function openFile(filePath) {
   try {
     const content = fs.readFileSync(filePath, 'utf8');
-    const html = enhanceCodeBlocks(marked.parse(content));
+    const html = resolveLocalPaths(enhanceCodeBlocks(marked.parse(content)), filePath);
     const recents = addRecent(filePath);
     mainWindow.webContents.send('file-opened', {
       path: filePath,
@@ -354,8 +370,8 @@ ipcMain.handle('show-unsaved-dialog', async (_, dlg) => {
   return result.response; // 0=Save, 1=Don't Save, 2=Cancel
 });
 
-ipcMain.handle('render-markdown', (_, content) => {
-  try { return enhanceCodeBlocks(marked.parse(content)); }
+ipcMain.handle('render-markdown', (_, content, filePath) => {
+  try { return resolveLocalPaths(enhanceCodeBlocks(marked.parse(content)), filePath); }
   catch (e) { return `<pre>${content.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</pre>`; }
 });
 
@@ -377,7 +393,7 @@ ipcMain.handle('watch-file', (_, filePath) => {
     watcher = fs.watch(filePath, () => {
       try {
         const content = fs.readFileSync(filePath, 'utf8');
-        const html = enhanceCodeBlocks(marked.parse(content));
+        const html = resolveLocalPaths(enhanceCodeBlocks(marked.parse(content)), filePath);
         mainWindow.webContents.send('file-changed', { content, html });
       } catch {}
     });

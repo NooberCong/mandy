@@ -23,7 +23,7 @@ contextBridge.exposeInMainWorld('mandy', {
   showUnsavedDialog:(dlg)  => ipcRenderer.invoke('show-unsaved-dialog', dlg),
 
   // Rendering (done in main process where Node is always available)
-  renderMarkdown:  (content) => ipcRenderer.invoke('render-markdown', content),
+  renderMarkdown:  (content, filePath) => ipcRenderer.invoke('render-markdown', content, filePath),
   getHljsThemeCSS: (theme)   => ipcRenderer.invoke('get-hljs-theme-css', theme),
 
   // Window

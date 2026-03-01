@@ -397,7 +397,7 @@ function applyHljsTheme(theme) {
 
 // ---- Markdown render (re-render via IPC — used only when settings change) ----
 async function renderMarkdown(mdText) {
-  return window.mandy.renderMarkdown(mdText);
+  return window.mandy.renderMarkdown(mdText, currentFile);
 }
 
 
@@ -418,7 +418,7 @@ function setViewMode(mode) {
 
 // ---- Editor: live preview update ----
 async function updatePreview() {
-  const html = await window.mandy.renderMarkdown(dom.editorTextarea.value);
+  const html = await renderMarkdown(dom.editorTextarea.value);
   dom.mdContent.innerHTML = html;
   addHeadingIds();
   buildTOC();
@@ -799,7 +799,7 @@ async function saveFile() {
     updateUnsavedIndicator();
     renderTabBar();
     // Re-render preview with saved content
-    const html = await window.mandy.renderMarkdown(content);
+    const html = await renderMarkdown(content);
     dom.mdContent.innerHTML = html;
     if (activeTab) activeTab.html = html;
     addHeadingIds();
@@ -1483,6 +1483,7 @@ function htmlToMd(node) {
   function showMenu(x, y, hasSelection) {
     btnMd.disabled         = !hasSelection;
     btnText.disabled       = !hasSelection;
+    btnFind.disabled       = !hasSelection;
     btnFindEditor.disabled = !hasSelection;
 
     // Position, then clamp so it doesn't overflow the viewport
@@ -1493,8 +1494,8 @@ function htmlToMd(node) {
   }
 
   dom.mdContent.addEventListener('contextmenu', e => {
-    // Only in preview mode
-    if (viewMode !== 'preview') return;
+    // Available in preview and split modes (not edit, where the preview pane is hidden)
+    if (viewMode === 'edit') return;
     e.preventDefault();
     const sel = window.getSelection();
     showMenu(e.clientX, e.clientY, sel && !sel.isCollapsed);
