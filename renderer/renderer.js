@@ -387,6 +387,7 @@ const dom = {
   scrollThumb: $('#scroll-thumb'),
   settingsOverlay: $('#settings-overlay'),
   statusFile: $('#status-file'),
+  statusLink: $('#status-link'),
   statusPos: $('#status-pos'),
   editorPane: $('#editor-pane'),
   editorTextarea: $('#editor-textarea'),
@@ -752,6 +753,7 @@ function renderTabBar() {
     const el = document.createElement('div');
     el.className = 'tab' + (tab.id === activeTabId ? ' active' : '');
     el.dataset.tabId = tab.id;
+    if (tab.path) el.title = tab.path;
     el.innerHTML =
       `<span class="tab-name">${escapeHtml(tab.name)}</span>` +
       `<span class="tab-dot${tab.unsaved ? '' : ' hidden'}">●</span>` +
@@ -1156,6 +1158,16 @@ function setupEditorKeyboard() {
   dom.editorTextarea.addEventListener('input', handleEditorInput);
   dom.editorTextarea.addEventListener('scroll', syncEditorToPreview, { passive: true });
   dom.editorTextarea.addEventListener('click', () => { updateEditorStatus(); updateToolbarState(); });
+  dom.editorTextarea.addEventListener('mousedown', e => {
+    if (e.detail !== 2) return;
+    e.preventDefault();
+    const ta   = dom.editorTextarea;
+    const text = ta.value;
+    let s = ta.selectionStart, end = s;
+    while (s > 0 && /\w/.test(text[s - 1])) s--;
+    while (end < text.length && /\w/.test(text[end])) end++;
+    ta.setSelectionRange(s, end);
+  });
   dom.editorTextarea.addEventListener('keyup', () => { updateEditorStatus(); updateToolbarState(); });
   // selectionchange fires on arrow-key navigation, mouse selection, etc.
   document.addEventListener('selectionchange', () => {
@@ -1216,6 +1228,10 @@ function countWords(text) {
 }
 
 // ---- TOC ----
+let _tocScrolling = false;
+let _tocScrollTimer = null;
+let _scrollSpyListener = null;
+
 function buildTOC() {
   const headings = $$('h1,h2,h3,h4,h5,h6', dom.mdContent);
   dom.tocList.innerHTML = '';
@@ -1226,18 +1242,22 @@ function buildTOC() {
   }
   dom.tocEmpty.classList.add('hidden');
 
-  headings.forEach(h => {
+  headings.forEach((h, idx) => {
     const level = parseInt(h.tagName[1]);
     const item = document.createElement('a');
     item.className = 'toc-item';
     item.dataset.level = level;
+    item.dataset.idx = idx;
     item.textContent = h.textContent;
     item.href = '#';
     item.onclick = (e) => {
       e.preventDefault();
+      clearTimeout(_tocScrollTimer);
+      _tocScrolling = true;
       h.scrollIntoView({ behavior: 'smooth', block: 'start' });
       $$('.toc-item').forEach(i => i.classList.remove('active'));
       item.classList.add('active');
+      _tocScrollTimer = setTimeout(() => { _tocScrolling = false; }, 800);
     };
     dom.tocList.appendChild(item);
   });
@@ -1247,17 +1267,45 @@ function buildTOC() {
 
 function observeHeadings(headings) {
   if (!dom.scrollContainer) return;
-  const io = new IntersectionObserver(entries => {
-    for (const entry of entries) {
-      if (entry.isIntersecting) {
-        $$('.toc-item').forEach(item => {
-          item.classList.toggle('active', item.textContent === entry.target.textContent);
-        });
-        break;
-      }
+
+  if (_scrollSpyListener) {
+    dom.scrollContainer.removeEventListener('scroll', _scrollSpyListener);
+    _scrollSpyListener = null;
+  }
+
+  const arr = Array.from(headings);
+  let offsets = [];
+
+  // Compute each heading's absolute offset within the scroll container's content.
+  // Formula: BCR.top - containerBCR.top + scrollTop cancels scroll so the value
+  // is stable (only changes if content reflows, not on scroll).
+  function computeOffsets() {
+    const cTop = dom.scrollContainer.getBoundingClientRect().top;
+    const st   = dom.scrollContainer.scrollTop;
+    offsets = arr.map(h => h.getBoundingClientRect().top - cTop + st);
+  }
+
+  function updateActive() {
+    if (_tocScrolling || !offsets.length) return;
+    const st        = dom.scrollContainer.scrollTop;
+    const threshold = 80; // px — heading activates when within 80px of container top
+    let activeIdx   = 0;
+    for (let i = 0; i < offsets.length; i++) {
+      if (offsets[i] <= st + threshold) activeIdx = i;
     }
-  }, { root: dom.scrollContainer, rootMargin: '-10% 0px -80% 0px' });
-  headings.forEach(h => io.observe(h));
+    $$('.toc-item').forEach(item =>
+      item.classList.toggle('active', parseInt(item.dataset.idx) === activeIdx)
+    );
+  }
+
+  // Wait one frame so the browser has finished laying out the new content
+  requestAnimationFrame(() => {
+    computeOffsets();
+    updateActive();
+  });
+
+  _scrollSpyListener = updateActive;
+  dom.scrollContainer.addEventListener('scroll', _scrollSpyListener, { passive: true });
 }
 
 // ---- Recents ----
@@ -1766,19 +1814,41 @@ function htmlToMd(node) {
   }, true);
 })();
 
+// ---- Link hover preview (status bar) ----
+(function initLinkHover() {
+  function showLink(href) {
+    dom.statusFile.classList.add('hidden');
+    dom.statusLink.textContent = href;
+    dom.statusLink.classList.remove('hidden');
+  }
+  function hideLink() {
+    dom.statusLink.classList.add('hidden');
+    dom.statusLink.textContent = '';
+    dom.statusFile.classList.remove('hidden');
+  }
+
+  dom.mdContent.addEventListener('mouseover', e => {
+    const a = e.target.closest('a[href]');
+    if (a) showLink(a.getAttribute('href'));
+  });
+  dom.mdContent.addEventListener('mouseout', e => {
+    if (e.target.closest('a[href]')) hideLink();
+  });
+})();
+
 // ---- Find ----
 let findTimeout;
 
-function openFind(query) {
+function openFind(query, selectionY) {
+  if (viewMode === 'edit') setViewMode('split');
   dom.findBar.classList.remove('hidden');
-  if (query) {
-    dom.findInput.value = query;
-    doFind(query);
-    dom.findInput.focus();
-  } else {
-    dom.findInput.focus();
-    dom.findInput.select();
+  const term = query ?? dom.findInput.value;
+  if (term) {
+    dom.findInput.value = term;
+    doFind(term, selectionY);
   }
+  dom.findInput.focus();
+  dom.findInput.select();
 }
 
 function closeFind() {
@@ -1789,7 +1859,7 @@ function closeFind() {
   dom.findCount.textContent = '';
 }
 
-function doFind(query) {
+function doFind(query, selectionY) {
   clearHighlights();
   findMatches = [];
   findIndex = 0;
@@ -1831,7 +1901,22 @@ function doFind(query) {
   dom.findCount.textContent = findMatches.length > 0 ? `1 / ${findMatches.length}` : t('noResults');
 
   if (findMatches.length > 0) {
-    findIndex = 0;
+    if (selectionY != null) {
+      // Jump to the match closest to where the user's selection was
+      let best = 0, bestDist = Infinity;
+      for (let i = 0; i < findMatches.length; i++) {
+        const dist = Math.abs(findMatches[i].getBoundingClientRect().top - selectionY);
+        if (dist < bestDist) { bestDist = dist; best = i; }
+      }
+      findIndex = best;
+    } else {
+      // Jump to first match at or below the current scroll position
+      const containerTop = dom.scrollContainer.getBoundingClientRect().top;
+      findIndex = 0;
+      for (let i = 0; i < findMatches.length; i++) {
+        if (findMatches[i].getBoundingClientRect().top >= containerTop) { findIndex = i; break; }
+      }
+    }
     highlightCurrent();
   }
 }
@@ -1920,9 +2005,6 @@ function autosave() {
   cfg.lineHeight   = parseFloat($('#cfg-line-height').value)         || 1.8;
   cfg.contentWidth = parseInt($('#cfg-content-width').value)         ?? 80;
   cfg.codeTheme    = $('#cfg-code-theme').value;
-  cfg.showWordCount = $('#cfg-word-count').checked;
-  cfg.smoothScroll  = $('#cfg-smooth-scroll').checked;
-  liveReload       = $('#cfg-live-reload').checked;
   cfg.liveReload   = liveReload;
 
   clearTimeout(_saveTimer);
@@ -2030,13 +2112,18 @@ function setupKeyboard() {
     if (mod && e.key === 'n') { e.preventDefault(); newFile(); }
     if (mod && e.key === 's') { e.preventDefault(); saveFile(); }
     if (mod && e.key === ',') { e.preventDefault(); openSettings(); }
-    // Ctrl+F: open find; in editor, pre-fill with the current selection
+    // Ctrl+F: open find; pre-fill with selection and jump to that exact instance
     if (mod && e.key === 'f') {
       e.preventDefault();
-      const sel = inEditor
-        ? dom.editorTextarea.value.slice(dom.editorTextarea.selectionStart, dom.editorTextarea.selectionEnd).trim()
-        : (window.getSelection()?.toString()?.trim() || '');
-      openFind(sel || undefined);
+      let sel = '', selectionY = null;
+      if (inEditor) {
+        sel = dom.editorTextarea.value.slice(dom.editorTextarea.selectionStart, dom.editorTextarea.selectionEnd).trim();
+      } else {
+        const s = window.getSelection();
+        sel = s?.toString()?.trim() || '';
+        if (sel && s.rangeCount > 0) selectionY = s.getRangeAt(0).getBoundingClientRect().top;
+      }
+      openFind(sel || undefined, selectionY);
     }
     if (mod && e.key === 'b' && !inEditor) { e.preventDefault(); toggleSidebar(); }
     if (mod && e.key === '=' && !inEditor) { e.preventDefault(); applyZoom((cfg.zoom || 1) + 0.1); }
@@ -2052,6 +2139,10 @@ function setupKeyboard() {
       if (!dom.settingsOverlay.classList.contains('hidden')) { closeSettings(); return; }
       if (!dom.findBar.classList.contains('hidden')) { closeFind(); return; }
       if (inEditor && viewMode === 'edit') { setViewMode('preview'); return; }
+      // Clear any active text selection
+      const sel = window.getSelection();
+      if (sel && !sel.isCollapsed) { sel.removeAllRanges(); return; }
+      if (inEditor) { dom.editorTextarea.setSelectionRange(dom.editorTextarea.selectionStart, dom.editorTextarea.selectionStart); }
     }
     if (!dom.findBar.classList.contains('hidden')) {
       if (e.key === 'Enter') { e.shiftKey ? findNav(-1) : findNav(1); }
@@ -2119,7 +2210,7 @@ async function init() {
   })();
 
   // Titlebar buttons
-  $('#btn-find').onclick = openFind;
+  $('#btn-find').onclick = () => openFind();
   $('#btn-settings').onclick = openSettings;
   $('#btn-open-file').onclick = () => window.mandy.openFileDialog();
   $('#btn-open-folder').onclick = () => window.mandy.openFolderDialog();
@@ -2179,14 +2270,19 @@ async function init() {
     autosave();
   };
   $('#cfg-smooth-scroll').onchange = function() {
+    cfg.smoothScroll = this.checked;
     dom.scrollContainer.classList.toggle('no-smooth', !this.checked);
     autosave();
   };
   $('#cfg-word-count').onchange = function() {
+    cfg.showWordCount = this.checked;
     $('#doc-meta').style.display = this.checked ? '' : 'none';
     autosave();
   };
-  $('#cfg-live-reload').onchange = function() { autosave(); };
+  $('#cfg-live-reload').onchange = function() {
+    liveReload = this.checked;
+    autosave();
+  };
 
   $$('.theme-btn').forEach(btn => btn.onclick = () => {
     $$('.theme-btn').forEach(b => b.classList.remove('active'));
@@ -2220,6 +2316,25 @@ async function init() {
   $$('.toolbar-btn').forEach(btn => btn.onclick = () => applyFormat(btn.dataset.action));
 
   // Link clicks in rendered markdown
+  dom.mdContent.addEventListener('mousedown', e => {
+    if (e.detail !== 2) return;
+    e.preventDefault();
+    const range = document.caretRangeFromPoint?.(e.clientX, e.clientY);
+    if (!range || range.startContainer.nodeType !== Node.TEXT_NODE) return;
+    const node = range.startContainer;
+    const text = node.textContent;
+    let s = range.startOffset, end = s;
+    while (s > 0 && /\w/.test(text[s - 1])) s--;
+    while (end < text.length && /\w/.test(text[end])) end++;
+    if (s === end) return;
+    const r = document.createRange();
+    r.setStart(node, s);
+    r.setEnd(node, end);
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(r);
+  });
+
   dom.mdContent.addEventListener('click', e => {
     const a = e.target.closest('a[href]');
     if (!a) return;
