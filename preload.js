@@ -1,4 +1,4 @@
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 contextBridge.exposeInMainWorld('mandy', {
   // Config
@@ -30,9 +30,11 @@ contextBridge.exposeInMainWorld('mandy', {
   getHljsThemeCSS: (theme)   => ipcRenderer.invoke('get-hljs-theme-css', theme),
 
   // Window
+  signalReady: () => ipcRenderer.send('renderer-ready'),
   minimize:    () => ipcRenderer.invoke('window-minimize'),
   maximize:    () => ipcRenderer.invoke('window-maximize'),
   close:       () => ipcRenderer.invoke('window-close'),
+  getPathForFile:  (file) => webUtils.getPathForFile(file),
   getPlatform:     () => ipcRenderer.invoke('get-platform'),
   getHome:         () => ipcRenderer.invoke('get-home'),
   getPendingFile:  () => ipcRenderer.invoke('get-pending-file'),

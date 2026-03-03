@@ -1902,10 +1902,11 @@ function doFind(query, selectionY) {
 
   if (findMatches.length > 0) {
     if (selectionY != null) {
-      // Jump to the match closest to where the user's selection was
+      // Jump to the match closest to where the user's selection was (2D distance)
       let best = 0, bestDist = Infinity;
       for (let i = 0; i < findMatches.length; i++) {
-        const dist = Math.abs(findMatches[i].getBoundingClientRect().top - selectionY);
+        const r = findMatches[i].getBoundingClientRect();
+        const dist = Math.hypot(r.top - selectionY.top, r.left - selectionY.left);
         if (dist < bestDist) { bestDist = dist; best = i; }
       }
       findIndex = best;
@@ -2056,16 +2057,20 @@ function setupDragDrop() {
   `;
   document.body.appendChild(overlay);
 
+  const isFileDrag = e => e.dataTransfer.types.includes('Files');
   let dragCount = 0;
-  document.addEventListener('dragenter', () => { dragCount++; overlay.classList.add('active'); });
+  document.addEventListener('dragenter', e => { if (!isFileDrag(e)) return; dragCount++; overlay.classList.add('active'); });
   document.addEventListener('dragleave', () => { if (--dragCount <= 0) { dragCount = 0; overlay.classList.remove('active'); } });
-  document.addEventListener('dragover', e => e.preventDefault());
+  document.addEventListener('dragover', e => { if (isFileDrag(e)) e.preventDefault(); });
   document.addEventListener('drop', async e => {
+    if (!isFileDrag(e)) return;
     e.preventDefault();
     dragCount = 0;
     overlay.classList.remove('active');
     const file = e.dataTransfer.files[0];
-    if (file && file.path) window.mandy.openFileFromPath(file.path);
+    if (!file) return;
+    const path = window.mandy.getPathForFile(file);
+    if (path) window.mandy.openFileFromPath(path);
   });
 }
 
@@ -2121,7 +2126,10 @@ function setupKeyboard() {
       } else {
         const s = window.getSelection();
         sel = s?.toString()?.trim() || '';
-        if (sel && s.rangeCount > 0) selectionY = s.getRangeAt(0).getBoundingClientRect().top;
+        if (sel && s.rangeCount > 0) {
+          const r = s.getRangeAt(0).getBoundingClientRect();
+          selectionY = { top: r.top, left: r.left };
+        }
       }
       openFind(sel || undefined, selectionY);
     }
@@ -2440,6 +2448,8 @@ async function init() {
   // where ready-to-show fires before the listener is set up.
   const pendingFile = await window.mandy.getPendingFile();
   if (pendingFile) window.mandy.openFileFromPath(pendingFile);
+
+  window.mandy.signalReady();
 }
 
 init().catch(console.error);
