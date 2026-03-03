@@ -24,6 +24,9 @@ contextBridge.exposeInMainWorld('mandy', {
   saveFile:         (filePath, content) => ipcRenderer.invoke('save-file', filePath, content),
   showSaveDialog:   (opts) => ipcRenderer.invoke('show-save-dialog', opts),
   showUnsavedDialog:(dlg)  => ipcRenderer.invoke('show-unsaved-dialog', dlg),
+  getScrollPosition:(p) => ipcRenderer.invoke('get-scroll-position', p),
+  setScrollPosition:(p, preview, editor) => ipcRenderer.invoke('set-scroll-position', p, preview, editor),
+  saveAllScrollPositions:(positions) => ipcRenderer.invoke('save-all-scroll-positions', positions),
 
   // Rendering (done in main process where Node is always available)
   renderMarkdown:  (content, filePath) => ipcRenderer.invoke('render-markdown', content, filePath),

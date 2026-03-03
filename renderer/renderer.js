@@ -40,6 +40,7 @@ const LOCALES = {
     'set.code':'Code','set.codeTheme':'Code Theme',
     'set.reading':'Reading','set.liveReload':'Live reload on file change',
     'set.wordCount':'Show word count','set.smoothScroll':'Smooth scrolling',
+    'set.rememberScrollPos':'Remember scroll position',
     'btn.resetDefaults':'Reset to defaults',
     'stat.encoding':'UTF-8','stat.type':'Markdown',
     'find.placeholder':'Find in document\u2026','editor.placeholder':'Start writing Markdown\u2026',
@@ -83,6 +84,7 @@ const LOCALES = {
     'set.code':'C\xf3digo','set.codeTheme':'Tema de c\xf3digo',
     'set.reading':'Lectura','set.liveReload':'Recarga en vivo al cambiar',
     'set.wordCount':'Mostrar conteo de palabras','set.smoothScroll':'Desplazamiento suave',
+    'set.rememberScrollPos':'Recordar posición de desplazamiento',
     'btn.resetDefaults':'Restablecer valores predeterminados',
     'stat.encoding':'UTF-8','stat.type':'Markdown',
     'find.placeholder':'Buscar en el documento\u2026','editor.placeholder':'Empieza a escribir Markdown\u2026',
@@ -126,6 +128,7 @@ const LOCALES = {
     'set.code':'Code','set.codeTheme':'Th\xe8me de code',
     'set.reading':'Lecture','set.liveReload':'Rechargement en direct',
     'set.wordCount':'Afficher le nombre de mots','set.smoothScroll':'D\xe9filement fluide',
+    'set.rememberScrollPos':'Mémoriser la position de défilement',
     'btn.resetDefaults':'R\xe9initialiser',
     'stat.encoding':'UTF-8','stat.type':'Markdown',
     'find.placeholder':'Rechercher dans le document\u2026','editor.placeholder':'\xc9crire en Markdown\u2026',
@@ -169,6 +172,7 @@ const LOCALES = {
     'set.code':'Code','set.codeTheme':'Code-Thema',
     'set.reading':'Lesen','set.liveReload':'Live-Neuladen bei \xc4nderung',
     'set.wordCount':'Wortanzahl anzeigen','set.smoothScroll':'Sanftes Scrollen',
+    'set.rememberScrollPos':'Scroll-Position merken',
     'btn.resetDefaults':'Standardwerte zur\xfccksetzen',
     'stat.encoding':'UTF-8','stat.type':'Markdown',
     'find.placeholder':'Im Dokument suchen\u2026','editor.placeholder':'Markdown schreiben\u2026',
@@ -212,6 +216,7 @@ const LOCALES = {
     'set.code':'C\xf3digo','set.codeTheme':'Tema de c\xf3digo',
     'set.reading':'Leitura','set.liveReload':'Recarregar ao alterar',
     'set.wordCount':'Mostrar contagem de palavras','set.smoothScroll':'Rolagem suave',
+    'set.rememberScrollPos':'Lembrar posição de rolagem',
     'btn.resetDefaults':'Repor predefini\xe7\xf5es',
     'stat.encoding':'UTF-8','stat.type':'Markdown',
     'find.placeholder':'Localizar no documento\u2026','editor.placeholder':'Come\xe7ar a escrever Markdown\u2026',
@@ -255,6 +260,7 @@ const LOCALES = {
     'set.code':'\u30b3\u30fc\u30c9','set.codeTheme':'\u30b3\u30fc\u30c9\u30c6\u30fc\u30de',
     'set.reading':'\u8aad\u66f8','set.liveReload':'\u30d5\u30a1\u30a4\u30eb\u5909\u66f4\u6642\u306b\u518d\u8aad\u8fbc',
     'set.wordCount':'\u5358\u8a9e\u6570\u3092\u8868\u793a','set.smoothScroll':'\u30b9\u30e0\u30fc\u30ba\u30b9\u30af\u30ed\u30fc\u30eb',
+    'set.rememberScrollPos':'スクロール位置を記憶',
     'btn.resetDefaults':'\u30c7\u30d5\u30a9\u30eb\u30c8\u306b\u30ea\u30bb\u30c3\u30c8',
     'stat.encoding':'UTF-8','stat.type':'Markdown',
     'find.placeholder':'\u30c9\u30ad\u30e5\u30e1\u30f3\u30c8\u3092\u691c\u7d22\u2026','editor.placeholder':'Markdown\u3092\u5165\u529b\u3057\u3066\u304f\u3060\u3055\u3044\u2026',
@@ -298,6 +304,7 @@ const LOCALES = {
     'set.code':'\u4ee3\u7801','set.codeTheme':'\u4ee3\u7801\u4e3b\u9898',
     'set.reading':'\u9605\u8bfb','set.liveReload':'\u6587\u4ef6\u53d8\u66f4\u65f6\u81ea\u52a8\u91cd\u8f7d',
     'set.wordCount':'\u663e\u793a\u5b57\u6570','set.smoothScroll':'\u5e73\u6ed1\u6eda\u52a8',
+    'set.rememberScrollPos':'记住滚动位置',
     'btn.resetDefaults':'\u6062\u590d\u9ed8\u8ba4\u8bbe\u7f6e',
     'stat.encoding':'UTF-8','stat.type':'Markdown',
     'find.placeholder':'\u5728\u6587\u6863\u4e2d\u67e5\u627e\u2026','editor.placeholder':'\u5f00\u59cb\u4e66\u5199 Markdown\u2026',
@@ -659,8 +666,8 @@ function createTab(data = {}) {
     unsaved:       data.unsaved || false,
     cursorStart:   0,
     cursorEnd:     0,
-    editorScroll:  0,
-    previewScroll: 0,
+    editorScroll:  data.editorScroll  || 0,
+    previewScroll: data.previewScroll || 0,
   };
   tabs.push(tab);
   return tab;
@@ -679,6 +686,13 @@ function saveActiveTabState() {
   tab.viewMode      = viewMode;
   tab.unsaved       = hasUnsavedChanges;
   tab.html          = dom.mdContent.innerHTML;
+
+  // Persist scroll position to disk if enabled
+  if (cfg.rememberScrollPos !== false && tab.path) {
+    window.mandy.setScrollPosition(tab.path, tab.previewScroll, tab.editorScroll).catch(() => {
+      // Ignore errors saving scroll position
+    });
+  }
 }
 
 function activateTab(tabId) {
@@ -784,6 +798,20 @@ async function closeTab(tabId) {
     if (resp === 0) await saveFile(); // Save
   }
 
+  // Save scroll position if enabled and file has a path
+  if (cfg.rememberScrollPos !== false && tab.path) {
+    try {
+      // Update scroll position one last time before closing
+      if (tabId === activeTabId) {
+        tab.previewScroll = dom.scrollContainer.scrollTop;
+        tab.editorScroll = dom.editorTextarea.scrollTop;
+      }
+      await window.mandy.setScrollPosition(tab.path, tab.previewScroll, tab.editorScroll);
+    } catch (e) {
+      // Ignore errors saving scroll position
+    }
+  }
+
   const idx = tabs.findIndex(t => t.id === tabId);
   tabs.splice(idx, 1);
 
@@ -794,6 +822,11 @@ async function closeTab(tabId) {
     hasUnsavedChanges = false;
     dom.viewer.classList.add('hidden');
     dom.welcome.classList.remove('hidden');
+    dom.progressFill.style.width = '0%';
+    dom.statusPos.textContent = '';
+    // Clear active file highlighting in sidebar
+    $$('.file-item').forEach(el => el.classList.remove('active'));
+    $$('.recent-item').forEach(el => el.classList.remove('active'));
     renderTabBar();
     return;
   }
@@ -1207,15 +1240,27 @@ async function openDocument(data) {
     return;
   }
 
+  // Load saved scroll position if enabled
+  let savedScrollPos = {previewScroll: 0, editorScroll: 0};
+  if (cfg.rememberScrollPos !== false && filePath) {
+    try {
+      savedScrollPos = await window.mandy.getScrollPosition(filePath);
+    } catch (e) {
+      // Ignore errors loading scroll position
+    }
+  }
+
   // Replace current tab only if it's untitled, unmodified, and empty
   const cur = tabs.find(t => t.id === activeTabId);
   let tab;
   if (cur && !cur.path && !cur.unsaved && cur.content === '') {
-    Object.assign(cur, { path: filePath, name, content, html: html || '', viewMode: 'preview', unsaved: false });
+    Object.assign(cur, { path: filePath, name, content, html: html || '', viewMode: 'preview', unsaved: false,
+                        previewScroll: savedScrollPos.previewScroll, editorScroll: savedScrollPos.editorScroll });
     tab = cur;
     activeTabId = null; // force full restore
   } else {
-    tab = createTab({ path: filePath, name, content, html: html || '', viewMode: 'preview' });
+    tab = createTab({ path: filePath, name, content, html: html || '', viewMode: 'preview',
+                     previewScroll: savedScrollPos.previewScroll, editorScroll: savedScrollPos.editorScroll });
   }
 
   activateTab(tab.id);
@@ -1973,6 +2018,7 @@ function syncSettingsUI() {
   $('#cfg-live-reload').checked = liveReload;
   $('#cfg-word-count').checked = cfg.showWordCount !== false;
   $('#cfg-smooth-scroll').checked = cfg.smoothScroll !== false;
+  $('#cfg-remember-scroll-pos').checked = cfg.rememberScrollPos !== false;
 }
 
 function applyConfig() {
@@ -2282,6 +2328,10 @@ async function init() {
     dom.scrollContainer.classList.toggle('no-smooth', !this.checked);
     autosave();
   };
+  $('#cfg-remember-scroll-pos').onchange = function() {
+    cfg.rememberScrollPos = this.checked;
+    autosave();
+  };
   $('#cfg-word-count').onchange = function() {
     cfg.showWordCount = this.checked;
     $('#doc-meta').style.display = this.checked ? '' : 'none';
@@ -2448,6 +2498,27 @@ async function init() {
   // where ready-to-show fires before the listener is set up.
   const pendingFile = await window.mandy.getPendingFile();
   if (pendingFile) window.mandy.openFileFromPath(pendingFile);
+
+  // Save all scroll positions before window closes
+  window.addEventListener('beforeunload', () => {
+    if (cfg.rememberScrollPos !== false) {
+      // Save current active tab state first to update scroll values
+      const activeTab = tabs.find(t => t.id === activeTabId);
+      if (activeTab) {
+        activeTab.previewScroll = dom.scrollContainer.scrollTop;
+        activeTab.editorScroll = dom.editorTextarea.scrollTop;
+      }
+      // Batch save all tabs' scroll positions
+      const positions = tabs.filter(t => t.path).map(t => ({
+        path: t.path,
+        previewScroll: t.previewScroll,
+        editorScroll: t.editorScroll
+      }));
+      if (positions.length > 0) {
+        window.mandy.saveAllScrollPositions(positions);
+      }
+    }
+  });
 
   window.mandy.signalReady();
 }

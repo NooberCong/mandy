@@ -67,6 +67,7 @@ function enhanceCodeBlocks(html) {
 const CONFIG_PATH = path.join(app.getPath('userData'), 'config.json');
 const RECENTS_PATH = path.join(app.getPath('userData'), 'recents.json');
 const WIN_STATE_PATH = path.join(app.getPath('userData'), 'winstate.json');
+const SCROLL_POS_PATH = path.join(app.getPath('userData'), 'scroll-positions.json');
 
 function loadWinState() {
     try {
@@ -100,6 +101,7 @@ const DEFAULT_CONFIG = {
     zoom: 1.0,
     palette: 'amber',
     language: 'en',
+    rememberScrollPos: true,
 };
 
 function loadConfig() {
@@ -143,6 +145,42 @@ function addRecent(filePath) {
     if (recents.length > 20) recents = recents.slice(0, 20);
     saveRecents(recents);
     return recents;
+}
+
+function loadScrollPositions() {
+    try {
+        if (fs.existsSync(SCROLL_POS_PATH)) {
+            return JSON.parse(fs.readFileSync(SCROLL_POS_PATH, 'utf8')) || {};
+        }
+    } catch {
+    }
+    return {};
+}
+
+function saveScrollPositions(positions) {
+    try {
+        fs.writeFileSync(SCROLL_POS_PATH, JSON.stringify(positions, null, 2));
+    } catch {
+    }
+}
+
+function getScrollPosition(filePath) {
+    const positions = loadScrollPositions();
+    return positions[filePath] || {previewScroll: 0, editorScroll: 0};
+}
+
+function setScrollPosition(filePath, previewScroll, editorScroll) {
+    const positions = loadScrollPositions();
+    positions[filePath] = {previewScroll, editorScroll, timestamp: Date.now()};
+    // Keep only the 100 most recent scroll positions
+    const entries = Object.entries(positions);
+    if (entries.length > 100) {
+        entries.sort((a, b) => (b[1].timestamp || 0) - (a[1].timestamp || 0));
+        const kept = Object.fromEntries(entries.slice(0, 100));
+        saveScrollPositions(kept);
+    } else {
+        saveScrollPositions(positions);
+    }
 }
 
 let mainWindow;
@@ -437,6 +475,30 @@ ipcMain.handle('remove-recent', (_, filePath) => {
     let recents = loadRecents().filter(r => r.path !== filePath);
     saveRecents(recents);
     return recents;
+});
+ipcMain.handle('get-scroll-position', (_, filePath) => getScrollPosition(filePath));
+ipcMain.handle('set-scroll-position', (_, filePath, previewScroll, editorScroll) => {
+    setScrollPosition(filePath, previewScroll, editorScroll);
+    return true;
+});
+ipcMain.handle('save-all-scroll-positions', (_, positions) => {
+    // positions is an array of {path, previewScroll, editorScroll}
+    try {
+        const existing = loadScrollPositions();
+        positions.forEach(pos => {
+            if (pos.path) {
+                existing[pos.path] = {
+                    previewScroll: pos.previewScroll,
+                    editorScroll: pos.editorScroll,
+                    timestamp: Date.now()
+                };
+            }
+        });
+        saveScrollPositions(existing);
+        return true;
+    } catch (e) {
+        return false;
+    }
 });
 ipcMain.handle('window-minimize', () => mainWindow.minimize());
 ipcMain.handle('window-maximize', () => {
