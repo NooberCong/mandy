@@ -102,12 +102,6 @@
 | AI Chat panel | AI Chat history |
 |---|---|
 | ![AI Chat panel](docs/screenshots/chat-panel.png) | ![AI Chat history](docs/screenshots/chat-history.png) |
-
-<!-- SCREENSHOT: AI Chat settings section -->
-| AI Chat settings (API URL, API key, model) |
-|---|
-| ![AI Chat settings](docs/screenshots/chat-settings.png) |
-
 ---
 
 ## ⬇ Download
