@@ -406,6 +406,63 @@ async function openFolderDialog() {
     }
 }
 
+async function pickChatContextFiles(startDir) {
+    const result = await dialog.showOpenDialog(mainWindow, {
+        title: 'Add Files to AI Chat Context',
+        defaultPath: startDir || undefined,
+        filters: [
+            {name: 'Markdown & Text', extensions: ['md', 'markdown', 'mdx', 'txt']},
+            {name: 'All Files', extensions: ['*']},
+        ],
+        properties: ['openFile', 'multiSelections'],
+    });
+    return result.canceled ? [] : (result.filePaths || []);
+}
+
+function suggestChatContextFiles(query, currentFilePath) {
+    try {
+        if (!currentFilePath || typeof currentFilePath !== 'string') return [];
+        const baseDir = path.dirname(currentFilePath);
+        const q = (query || '').trim();
+        if (!q.startsWith('/')) return [];
+
+        const partial = q.slice(1).replace(/\\/g, '/');
+        let slashIdx = partial.lastIndexOf('/');
+        let relDir = slashIdx >= 0 ? partial.slice(0, slashIdx + 1) : '';
+        let namePrefix = slashIdx >= 0 ? partial.slice(slashIdx + 1) : partial;
+
+        // Allow "/.." and "/a/.." to move to parent folder immediately.
+        if (partial === '..' || partial.endsWith('/..')) {
+            relDir = partial + '/';
+            namePrefix = '';
+        }
+
+        const dirPath = path.resolve(baseDir, relDir || '.');
+        const entries = fs.readdirSync(dirPath, {withFileTypes: true});
+        return entries
+            .filter(e => !e.name.startsWith('.') && e.name.toLowerCase().startsWith(namePrefix.toLowerCase()))
+            .map(e => {
+                const full = path.join(dirPath, e.name);
+                const rel = '/' + path.relative(baseDir, full).replace(/\\/g, '/');
+                if (e.isDirectory()) {
+                    return {type: 'dir', path: full, relPath: rel + '/', name: e.name};
+                }
+                if (e.isFile()) {
+                    return {type: 'file', path: full, relPath: rel, name: e.name};
+                }
+                return null;
+            })
+            .filter(Boolean)
+            .sort((a, b) => {
+                if (a.type !== b.type) return a.type === 'dir' ? -1 : 1;
+                return a.relPath.localeCompare(b.relPath);
+            })
+            .slice(0, 60);
+    } catch {
+        return [];
+    }
+}
+
 function openFile(filePath) {
     try {
         const content = fs.readFileSync(filePath, 'utf8');
@@ -433,6 +490,8 @@ ipcMain.handle('save-config', (_, cfg) => {
 ipcMain.handle('get-recents', () => loadRecents());
 ipcMain.handle('open-file-dialog', () => openFileDialog());
 ipcMain.handle('open-folder-dialog', () => openFolderDialog());
+ipcMain.handle('pick-chat-context-files', (_, startDir) => pickChatContextFiles(startDir));
+ipcMain.handle('suggest-chat-context-files', (_, query, currentFilePath) => suggestChatContextFiles(query, currentFilePath));
 ipcMain.handle('read-file', (_, filePath) => {
     try {
         return {content: fs.readFileSync(filePath, 'utf8'), error: null};
@@ -641,10 +700,24 @@ ipcMain.handle('ai-chat', (_, messages, fileContext) => {
     }
 
     const systemParts = ['You are a helpful AI assistant integrated into Mandy, a Markdown reader and editor.'];
-    if (fileContext && fileContext.name && fileContext.content) {
+    const contextFiles = [];
+    if (fileContext && Array.isArray(fileContext.files)) {
+        fileContext.files.forEach(f => {
+            if (f && f.name && typeof f.content === 'string') contextFiles.push(f);
+        });
+    } else if (fileContext && fileContext.name && typeof fileContext.content === 'string') {
+        contextFiles.push(fileContext);
+    }
+    if (contextFiles.length > 0) {
+        const primaryPath = fileContext?.primaryPath || contextFiles[0]?.path || '';
+        const primary = contextFiles.find(f => f.path && f.path === primaryPath) || contextFiles[0];
         systemParts.push(
-            `The user currently has the file "${fileContext.name}" open. Here is its content:\n\n${fileContext.content}`
+            `Primary file "${primary.name}" content:\n\n${primary.content}`
         );
+        const extras = contextFiles.filter(f => f !== primary);
+        extras.forEach((f, idx) => {
+            systemParts.push(`Additional context file ${idx + 1} "${f.name}" content:\n\n${f.content}`);
+        });
     }
 
     const body = JSON.stringify({

@@ -1,5 +1,5 @@
 /* ============================================================
-   MANDY — Renderer Process
+   MANDY Renderer Process
    ============================================================ */
 
 'use strict';
@@ -20,6 +20,10 @@ let chatMessages = [];   // { role: 'user'|'assistant', content: string }[]
 let chatStreaming = false;
 let chatStreamContent = '';
 let activeConversationByDoc = {};
+let chatContextFilesByDoc = {};
+let chatSuggestReqId = 0;
+let chatPathSuggestIndex = -1;
+let draggedTabId = null;
 const chatMarkdownCache = new Map();
 const chatMarkdownInFlight = new Set();
 
@@ -27,421 +31,10 @@ const chatMarkdownInFlight = new Set();
 let tabs = [];
 let activeTabId = null;
 let tabCounter = 0;
+let tabBarScrollToEndPending = false;
 
 // ---- Localisation ----
-const LOCALES = {
-  en: {
-    'nav.recent':'Recent','nav.folder':'Folder','nav.outline':'Outline',
-    'hdr.recents':'Recent Files','hdr.outline':'Outline','hdr.noFolder':'No folder',
-    'empty.recents':'No recent files','empty.folder':'No folder open','empty.noDoc':'No document open',
-    'btn.openFile':'Open File','btn.openFolder':'Open Folder','btn.newFile':'New File',
-    'welcome.tagline':'A beautiful Markdown reader','welcome.recent':'Recent',
-    'sc.openFile':'Open file','sc.newTab':'New tab','sc.closeTab':'Close tab',
-    'sc.save':'Save','sc.editMode':'Edit mode','sc.find':'Find','sc.sidebar':'Sidebar',
-    'set.settings':'Settings','set.general':'General','set.language':'Language',
-    'set.appearance':'Appearance','set.theme':'Theme','set.accentColor':'Accent Color',
-    'theme.dark':'Dark','theme.light':'Light','theme.sepia':'Sepia',
-    'set.typography':'Typography','set.fontFamily':'Font Family',
-    'font.serif':'Serif','font.sans':'Sans-serif','font.mono':'Monospace',
-    'set.fontSize':'Font Size','set.lineHeight':'Line Height',
-    'set.layout':'Layout','set.contentWidth':'Content Width',
-    'set.code':'Code','set.codeTheme':'Code Theme',
-    'set.reading':'Reading','set.liveReload':'Live reload on file change',
-    'set.wordCount':'Show word count','set.smoothScroll':'Smooth scrolling',
-    'set.rememberScrollPos':'Remember scroll position',
-    'btn.resetDefaults':'Reset to defaults',
-    'stat.encoding':'UTF-8','stat.type':'Markdown',
-    'find.placeholder':'Find in document\u2026','editor.placeholder':'Start writing Markdown\u2026',
-    'words':'words','minRead':'min read','chars':'chars',
-    'justNow':'just now','mAgo':'m ago','hAgo':'h ago','dAgo':'d ago',
-    'noResults':'No results','saveFailed':'Save failed!',
-    'drop.title':'Drop to open','drop.sub':'Markdown & text files accepted',
-    'tt.unsaved':'Unsaved changes','tt.find':'Find (Ctrl+F)','tt.settings':'Settings (Ctrl+,)',
-    'tt.sidebar':'Toggle sidebar (Ctrl+B)','tt.openFile':'Open file','tt.openFolder':'Open folder',
-    'tt.newTab':'New tab (Ctrl+T)','tt.closeTab':'Close (Ctrl+W)',
-    'tt.preview':'Preview (Ctrl+Shift+P)','tt.split':'Split view (Ctrl+Shift+E)','tt.edit':'Edit mode (Ctrl+E)',
-    'tt.amber':'Amber','tt.sky':'Sky','tt.emerald':'Emerald','tt.violet':'Violet','tt.rose':'Rose','tt.teal':'Teal',
-    'tt.tb.bold':'Bold (Ctrl+B)','tt.tb.italic':'Italic (Ctrl+I)','tt.tb.strike':'Strikethrough',
-    'tt.tb.h1':'Heading 1','tt.tb.h2':'Heading 2','tt.tb.h3':'Heading 3',
-    'tt.tb.code':'Inline code (Ctrl+\x60)','tt.tb.codeblock':'Code block',
-    'tt.tb.link':'Link (Ctrl+K)','tt.tb.image':'Image',
-    'tt.tb.ul':'Bullet list','tt.tb.ol':'Numbered list','tt.tb.blockquote':'Blockquote','tt.tb.hr':'Horizontal rule',
-    'dlg.unsaved.title':'Unsaved Changes','dlg.unsaved.msg':'Save changes to "{name}"?',
-    'dlg.unsaved.detail':"Your changes will be lost if you don't save them.",
-    'dlg.unsaved.save':'Save','dlg.unsaved.dontSave':"Don't Save",'dlg.unsaved.cancel':'Cancel',
-    'tt.findPrev':'Previous match','tt.findNext':'Next match',
-    'cm.cut':'Cut','cm.copy':'Copy','cm.paste':'Paste','cm.copyMd':'Copy with Markdown','cm.copyText':'Copy Plain Text','cm.findDoc':'Find in Document','cm.findEditor':'Find in Editor','cm.askAiSpan':'Ask AI About Selection',
-    'tt.newFile':'New file','tt.newFolder':'New folder','tt.removeRecent':'Remove from recents','tt.delete':'Delete',
-    'copied':'Copied!','folder.newFilePh':'filename.md','folder.newFolderPh':'folder name',
-    'set.ai':'AI Chat','set.aiApiUrl':'API URL','set.aiApiKey':'API Key','set.aiModel':'Model',
-    'tt.chat':'AI Chat (Ctrl+Shift+A)','tt.chatSend':'Send','tt.chatClear':'New conversation','tt.chatHistory':'History',
-    'chat.title':'AI Chat','chat.empty':'Ask anything about your document',
-    'chat.emptyHint':'Conversation is context-aware of the open file.',
-    'chat.placeholder':'Ask about this document\u2026','chat.configNeeded':'Configure AI in Settings \u2192 AI Chat to get started.',
-    'chat.configTitle':'AI Chat requires configuration','chat.configDesc':'Set your API URL, key, and model in settings to start chatting.',
-    'chat.openSettings':'Open AI Settings',
-    'chat.historyEmpty':'No saved conversations for this document',
-    'chat.askSectionPrefix':'Look at this section of the document',
-    'chat.err.configTitle':'Check AI Settings',
-    'chat.err.configDesc':'Your AI provider URL, API key, or model is missing or invalid.',
-    'chat.err.authTitle':'Authentication Failed',
-    'chat.err.authDesc':'The API key was rejected. Verify the key and provider endpoint in AI Settings.',
-    'chat.err.rateTitle':'Rate Limited',
-    'chat.err.rateDesc':'The provider is rate limiting requests or quota is exhausted. Try again shortly.',
-    'chat.err.networkTitle':'Network Error',
-    'chat.err.networkDesc':'Could not reach the AI provider. Check internet access, endpoint URL, or firewall/proxy settings.',
-    'chat.err.genericTitle':'AI Request Failed',
-    'chat.err.genericDesc':'The AI request could not be completed.',
-  },
-  es: {
-    'nav.recent':'Reciente','nav.folder':'Carpeta','nav.outline':'Esquema',
-    'hdr.recents':'Archivos Recientes','hdr.outline':'Esquema','hdr.noFolder':'Sin carpeta',
-    'empty.recents':'Sin archivos recientes','empty.folder':'Sin carpeta abierta','empty.noDoc':'Sin documento abierto',
-    'btn.openFile':'Abrir Archivo','btn.openFolder':'Abrir Carpeta','btn.newFile':'Nuevo Archivo',
-    'welcome.tagline':'Un hermoso lector de Markdown','welcome.recent':'Reciente',
-    'sc.openFile':'Abrir archivo','sc.newTab':'Nueva pesta\xf1a','sc.closeTab':'Cerrar pesta\xf1a',
-    'sc.save':'Guardar','sc.editMode':'Modo edici\xf3n','sc.find':'Buscar','sc.sidebar':'Panel lateral',
-    'set.settings':'Ajustes','set.general':'General','set.language':'Idioma',
-    'set.appearance':'Apariencia','set.theme':'Tema','set.accentColor':'Color de acento',
-    'theme.dark':'Oscuro','theme.light':'Claro','theme.sepia':'Sepia',
-    'set.typography':'Tipograf\xeda','set.fontFamily':'Familia tipogr\xe1fica',
-    'font.serif':'Serif','font.sans':'Sans-serif','font.mono':'Monoespaciada',
-    'set.fontSize':'Tama\xf1o de fuente','set.lineHeight':'Altura de l\xednea',
-    'set.layout':'Dise\xf1o','set.contentWidth':'Ancho de contenido',
-    'set.code':'C\xf3digo','set.codeTheme':'Tema de c\xf3digo',
-    'set.reading':'Lectura','set.liveReload':'Recarga en vivo al cambiar',
-    'set.wordCount':'Mostrar conteo de palabras','set.smoothScroll':'Desplazamiento suave',
-    'set.rememberScrollPos':'Recordar posición de desplazamiento',
-    'btn.resetDefaults':'Restablecer valores predeterminados',
-    'stat.encoding':'UTF-8','stat.type':'Markdown',
-    'find.placeholder':'Buscar en el documento\u2026','editor.placeholder':'Empieza a escribir Markdown\u2026',
-    'words':'palabras','minRead':'min de lectura','chars':'caracteres',
-    'justNow':'ahora mismo','mAgo':'m atr\xe1s','hAgo':'h atr\xe1s','dAgo':'d atr\xe1s',
-    'noResults':'Sin resultados','saveFailed':'\xa1Error al guardar!',
-    'drop.title':'Suelta para abrir','drop.sub':'Se aceptan archivos Markdown y texto',
-    'tt.unsaved':'Cambios sin guardar','tt.find':'Buscar (Ctrl+F)','tt.settings':'Ajustes (Ctrl+,)',
-    'tt.sidebar':'Panel lateral (Ctrl+B)','tt.openFile':'Abrir archivo','tt.openFolder':'Abrir carpeta',
-    'tt.newTab':'Nueva pesta\xf1a (Ctrl+T)','tt.closeTab':'Cerrar (Ctrl+W)',
-    'tt.preview':'Vista previa (Ctrl+Shift+P)','tt.split':'Vista dividida (Ctrl+Shift+E)','tt.edit':'Modo edici\xf3n (Ctrl+E)',
-    'tt.amber':'\xc1mbar','tt.sky':'Cielo','tt.emerald':'Esmeralda','tt.violet':'Violeta','tt.rose':'Rosa','tt.teal':'Verde azulado',
-    'tt.tb.bold':'Negrita (Ctrl+B)','tt.tb.italic':'Cursiva (Ctrl+I)','tt.tb.strike':'Tachado',
-    'tt.tb.h1':'Encabezado 1','tt.tb.h2':'Encabezado 2','tt.tb.h3':'Encabezado 3',
-    'tt.tb.code':'C\xf3digo en l\xednea (Ctrl+\x60)','tt.tb.codeblock':'Bloque de c\xf3digo',
-    'tt.tb.link':'Enlace (Ctrl+K)','tt.tb.image':'Imagen',
-    'tt.tb.ul':'Lista de vi\xf1etas','tt.tb.ol':'Lista numerada','tt.tb.blockquote':'Cita','tt.tb.hr':'L\xednea horizontal',
-    'dlg.unsaved.title':'Cambios sin guardar','dlg.unsaved.msg':'¿Guardar cambios en "{name}"?',
-    'dlg.unsaved.detail':'Los cambios se perderán si no los guardas.',
-    'dlg.unsaved.save':'Guardar','dlg.unsaved.dontSave':'No guardar','dlg.unsaved.cancel':'Cancelar',
-    'tt.findPrev':'Coincidencia anterior','tt.findNext':'Siguiente coincidencia',
-    'cm.cut':'Cortar','cm.copy':'Copiar','cm.paste':'Pegar','cm.copyMd':'Copiar con Markdown','cm.copyText':'Copiar texto plano','cm.findDoc':'Buscar en el documento','cm.findEditor':'Buscar en el editor',
-    'tt.newFile':'Nuevo archivo','tt.newFolder':'Nueva carpeta','tt.removeRecent':'Eliminar de recientes','tt.delete':'Eliminar',
-    'copied':'\u00a1Copiado!','folder.newFilePh':'archivo.md','folder.newFolderPh':'nombre de carpeta',
-    'set.ai':'Chat de IA','set.aiApiUrl':'URL de API','set.aiApiKey':'Clave API','set.aiModel':'Modelo',
-    'tt.chat':'Chat de IA (Ctrl+Shift+A)','tt.chatSend':'Enviar','tt.chatClear':'Nueva conversación','tt.chatHistory':'Historial',
-    'chat.title':'Chat de IA','chat.empty':'Pregunta cualquier cosa sobre tu documento',
-    'chat.emptyHint':'La conversación usa el archivo abierto como contexto.',
-    'chat.placeholder':'Pregunta sobre este documento…','chat.configNeeded':'Configura la IA en Ajustes → Chat de IA para empezar.',
-    'chat.configTitle':'El Chat de IA requiere configuración','chat.configDesc':'Define URL de API, clave y modelo en Ajustes para empezar a chatear.',
-    'chat.openSettings':'Abrir ajustes de IA',
-    'chat.historyEmpty':'No hay conversaciones guardadas para este documento',
-    'chat.askSectionPrefix':'Basado en esta sección del documento',
-    'chat.err.configTitle':'Revisa los ajustes de IA','chat.err.configDesc':'La URL, la clave API o el modelo no es válido o falta.',
-    'chat.err.authTitle':'Error de autenticación','chat.err.authDesc':'La clave API fue rechazada. Verifica la clave y el endpoint.',
-    'chat.err.rateTitle':'Límite de uso alcanzado','chat.err.rateDesc':'El proveedor está limitando solicitudes o se agotó la cuota.',
-    'chat.err.networkTitle':'Error de red','chat.err.networkDesc':'No se pudo conectar al proveedor de IA. Revisa red, URL o firewall/proxy.',
-    'chat.err.genericTitle':'Falló la solicitud de IA','chat.err.genericDesc':'No se pudo completar la solicitud de IA.',
-  },
-  fr: {
-    'nav.recent':'R\xe9cent','nav.folder':'Dossier','nav.outline':'Plan',
-    'hdr.recents':'Fichiers r\xe9cents','hdr.outline':'Plan','hdr.noFolder':'Aucun dossier',
-    'empty.recents':'Aucun fichier r\xe9cent','empty.folder':'Aucun dossier ouvert','empty.noDoc':'Aucun document ouvert',
-    'btn.openFile':'Ouvrir un fichier','btn.openFolder':'Ouvrir un dossier','btn.newFile':'Nouveau Fichier',
-    'welcome.tagline':'Un magnifique lecteur Markdown','welcome.recent':'R\xe9cent',
-    'sc.openFile':'Ouvrir un fichier','sc.newTab':'Nouvel onglet','sc.closeTab':'Fermer l\u2019onglet',
-    'sc.save':'Enregistrer','sc.editMode':'\xc9dition','sc.find':'Rechercher','sc.sidebar':'Barre lat\xe9rale',
-    'set.settings':'Param\xe8tres','set.general':'G\xe9n\xe9ral','set.language':'Langue',
-    'set.appearance':'Apparence','set.theme':'Th\xe8me','set.accentColor':'Couleur d\u2019accent',
-    'theme.dark':'Sombre','theme.light':'Clair','theme.sepia':'S\xe9pia',
-    'set.typography':'Typographie','set.fontFamily':'Police de caract\xe8res',
-    'font.serif':'Serif','font.sans':'Sans-serif','font.mono':'Monospace',
-    'set.fontSize':'Taille de police','set.lineHeight':'Hauteur de ligne',
-    'set.layout':'Mise en page','set.contentWidth':'Largeur du contenu',
-    'set.code':'Code','set.codeTheme':'Th\xe8me de code',
-    'set.reading':'Lecture','set.liveReload':'Rechargement en direct',
-    'set.wordCount':'Afficher le nombre de mots','set.smoothScroll':'D\xe9filement fluide',
-    'set.rememberScrollPos':'Mémoriser la position de défilement',
-    'btn.resetDefaults':'R\xe9initialiser',
-    'stat.encoding':'UTF-8','stat.type':'Markdown',
-    'find.placeholder':'Rechercher dans le document\u2026','editor.placeholder':'\xc9crire en Markdown\u2026',
-    'words':'mots','minRead':'min de lecture','chars':'caract\xe8res',
-    'justNow':'\xe0 l\u2019instant','mAgo':'min','hAgo':'h','dAgo':'j',
-    'noResults':'Aucun r\xe9sultat','saveFailed':'\xc9chec de la sauvegarde !',
-    'drop.title':'D\xe9poser pour ouvrir','drop.sub':'Fichiers Markdown et texte accept\xe9s',
-    'tt.unsaved':'Modifications non enregistr\xe9es','tt.find':'Rechercher (Ctrl+F)','tt.settings':'Param\xe8tres (Ctrl+,)',
-    'tt.sidebar':'Barre lat\xe9rale (Ctrl+B)','tt.openFile':'Ouvrir un fichier','tt.openFolder':'Ouvrir un dossier',
-    'tt.newTab':'Nouvel onglet (Ctrl+T)','tt.closeTab':'Fermer (Ctrl+W)',
-    'tt.preview':'Aper\xe7u (Ctrl+Shift+P)','tt.split':'Vue partag\xe9e (Ctrl+Shift+E)','tt.edit':'\xc9dition (Ctrl+E)',
-    'tt.amber':'Ambre','tt.sky':'Ciel','tt.emerald':'\xc9meraude','tt.violet':'Violet','tt.rose':'Rose','tt.teal':'Sarcelle',
-    'tt.tb.bold':'Gras (Ctrl+B)','tt.tb.italic':'Italique (Ctrl+I)','tt.tb.strike':'Barr\xe9',
-    'tt.tb.h1':'Titre 1','tt.tb.h2':'Titre 2','tt.tb.h3':'Titre 3',
-    'tt.tb.code':'Code en ligne (Ctrl+\x60)','tt.tb.codeblock':'Bloc de code',
-    'tt.tb.link':'Lien (Ctrl+K)','tt.tb.image':'Image',
-    'tt.tb.ul':'Liste \xe0 puces','tt.tb.ol':'Liste num\xe9rot\xe9e','tt.tb.blockquote':'Citation','tt.tb.hr':'Ligne horizontale',
-    'dlg.unsaved.title':'Modifications non enregistr\xe9es','dlg.unsaved.msg':'Enregistrer les modifications de \u00ab\u00a0{name}\u00a0\u00bb\u00a0?',
-    'dlg.unsaved.detail':'Vos modifications seront perdues si vous ne les enregistrez pas.',
-    'dlg.unsaved.save':'Enregistrer','dlg.unsaved.dontSave':'Ne pas enregistrer','dlg.unsaved.cancel':'Annuler',
-    'tt.findPrev':'Correspondance pr\u00e9c\u00e9dente','tt.findNext':'Correspondance suivante',
-    'cm.cut':'Couper','cm.copy':'Copier','cm.paste':'Coller','cm.copyMd':'Copier avec Markdown','cm.copyText':'Copier en texte brut','cm.findDoc':'Rechercher dans le document','cm.findEditor':'Rechercher dans l\u2019\u00e9diteur',
-    'tt.newFile':'Nouveau fichier','tt.newFolder':'Nouveau dossier','tt.removeRecent':'Supprimer des r\u00e9cents','tt.delete':'Supprimer',
-    'copied':'Copi\u00e9\u00a0!','folder.newFilePh':'fichier.md','folder.newFolderPh':'nom du dossier',
-    'set.ai':'Chat IA','set.aiApiUrl':'URL API','set.aiApiKey':'Clé API','set.aiModel':'Modèle',
-    'tt.chat':'Chat IA (Ctrl+Shift+A)','tt.chatSend':'Envoyer','tt.chatClear':'Nouvelle conversation','tt.chatHistory':'Historique',
-    'chat.title':'Chat IA','chat.empty':'Posez vos questions sur ce document',
-    'chat.emptyHint':'La conversation utilise le fichier ouvert comme contexte.',
-    'chat.placeholder':'Poser une question sur ce document…','chat.configNeeded':'Configurez l’IA dans Paramètres → Chat IA pour commencer.',
-    'chat.configTitle':'Le Chat IA nécessite une configuration','chat.configDesc':'Définissez URL API, clé et modèle dans les paramètres.',
-    'chat.openSettings':'Ouvrir les paramètres IA',
-    'chat.historyEmpty':'Aucune conversation enregistrée pour ce document',
-    'chat.askSectionPrefix':'Sur la base de cette section du document',
-    'chat.err.configTitle':'Vérifiez les paramètres IA','chat.err.configDesc':'L’URL, la clé API ou le modèle est manquant ou invalide.',
-    'chat.err.authTitle':'Échec d’authentification','chat.err.authDesc':'La clé API a été rejetée. Vérifiez la clé et le point de terminaison.',
-    'chat.err.rateTitle':'Limite de débit atteinte','chat.err.rateDesc':'Le fournisseur limite les requêtes ou le quota est épuisé.',
-    'chat.err.networkTitle':'Erreur réseau','chat.err.networkDesc':'Impossible de joindre le fournisseur IA. Vérifiez réseau, URL ou pare-feu/proxy.',
-    'chat.err.genericTitle':'Échec de la requête IA','chat.err.genericDesc':'La requête IA n’a pas pu être terminée.',
-  },
-  de: {
-    'nav.recent':'Zuletzt','nav.folder':'Ordner','nav.outline':'Gliederung',
-    'hdr.recents':'Zuletzt ge\xf6ffnet','hdr.outline':'Gliederung','hdr.noFolder':'Kein Ordner',
-    'empty.recents':'Keine zuletzt ge\xf6ffneten Dateien','empty.folder':'Kein Ordner ge\xf6ffnet','empty.noDoc':'Kein Dokument ge\xf6ffnet',
-    'btn.openFile':'Datei \xf6ffnen','btn.openFolder':'Ordner \xf6ffnen','btn.newFile':'Neue Datei',
-    'welcome.tagline':'Ein sch\xf6ner Markdown-Reader','welcome.recent':'Zuletzt',
-    'sc.openFile':'Datei \xf6ffnen','sc.newTab':'Neuer Tab','sc.closeTab':'Tab schlie\xdfen',
-    'sc.save':'Speichern','sc.editMode':'Bearbeitungsmodus','sc.find':'Suchen','sc.sidebar':'Seitenleiste',
-    'set.settings':'Einstellungen','set.general':'Allgemein','set.language':'Sprache',
-    'set.appearance':'Erscheinungsbild','set.theme':'Thema','set.accentColor':'Akzentfarbe',
-    'theme.dark':'Dunkel','theme.light':'Hell','theme.sepia':'Sepia',
-    'set.typography':'Typografie','set.fontFamily':'Schriftfamilie',
-    'font.serif':'Serif','font.sans':'Sans-Serif','font.mono':'Monospace',
-    'set.fontSize':'Schriftgr\xf6\xdfe','set.lineHeight':'Zeilenh\xf6he',
-    'set.layout':'Layout','set.contentWidth':'Inhaltsbreite',
-    'set.code':'Code','set.codeTheme':'Code-Thema',
-    'set.reading':'Lesen','set.liveReload':'Live-Neuladen bei \xc4nderung',
-    'set.wordCount':'Wortanzahl anzeigen','set.smoothScroll':'Sanftes Scrollen',
-    'set.rememberScrollPos':'Scroll-Position merken',
-    'btn.resetDefaults':'Standardwerte zur\xfccksetzen',
-    'stat.encoding':'UTF-8','stat.type':'Markdown',
-    'find.placeholder':'Im Dokument suchen\u2026','editor.placeholder':'Markdown schreiben\u2026',
-    'words':'W\xf6rter','minRead':'Min. Lesen','chars':'Zeichen',
-    'justNow':'gerade eben','mAgo':' Min.','hAgo':' Std.','dAgo':' T.',
-    'noResults':'Keine Ergebnisse','saveFailed':'Speichern fehlgeschlagen!',
-    'drop.title':'Zum \xd6ffnen ablegen','drop.sub':'Markdown- und Textdateien akzeptiert',
-    'tt.unsaved':'Nicht gespeicherte \xc4nderungen','tt.find':'Suchen (Ctrl+F)','tt.settings':'Einstellungen (Ctrl+,)',
-    'tt.sidebar':'Seitenleiste (Ctrl+B)','tt.openFile':'Datei \xf6ffnen','tt.openFolder':'Ordner \xf6ffnen',
-    'tt.newTab':'Neuer Tab (Ctrl+T)','tt.closeTab':'Schlie\xdfen (Ctrl+W)',
-    'tt.preview':'Vorschau (Ctrl+Shift+P)','tt.split':'Geteilte Ansicht (Ctrl+Shift+E)','tt.edit':'Bearbeiten (Ctrl+E)',
-    'tt.amber':'Bernstein','tt.sky':'Himmel','tt.emerald':'Smaragd','tt.violet':'Violett','tt.rose':'Rosa','tt.teal':'Petrol',
-    'tt.tb.bold':'Fett (Ctrl+B)','tt.tb.italic':'Kursiv (Ctrl+I)','tt.tb.strike':'Durchgestrichen',
-    'tt.tb.h1':'\xdcberschrift 1','tt.tb.h2':'\xdcberschrift 2','tt.tb.h3':'\xdcberschrift 3',
-    'tt.tb.code':'Inline-Code (Ctrl+\x60)','tt.tb.codeblock':'Codeblock',
-    'tt.tb.link':'Link (Ctrl+K)','tt.tb.image':'Bild',
-    'tt.tb.ul':'Aufz\xe4hlungsliste','tt.tb.ol':'Nummerierte Liste','tt.tb.blockquote':'Blockzitat','tt.tb.hr':'Horizontale Linie',
-    'dlg.unsaved.title':'Nicht gespeicherte \xc4nderungen','dlg.unsaved.msg':'\xc4nderungen in \u201e{name}\u201c speichern?',
-    'dlg.unsaved.detail':'Ihre \xc4nderungen gehen verloren, wenn Sie nicht speichern.',
-    'dlg.unsaved.save':'Speichern','dlg.unsaved.dontSave':'Nicht speichern','dlg.unsaved.cancel':'Abbrechen',
-    'tt.findPrev':'Vorherige \u00dcbereinstimmung','tt.findNext':'N\u00e4chste \u00dcbereinstimmung',
-    'cm.cut':'Ausschneiden','cm.copy':'Kopieren','cm.paste':'Einfügen','cm.copyMd':'Mit Markdown kopieren','cm.copyText':'Als Text kopieren','cm.findDoc':'Im Dokument suchen','cm.findEditor':'Im Editor suchen',
-    'tt.newFile':'Neue Datei','tt.newFolder':'Neuer Ordner','tt.removeRecent':'Aus Zuletzt entfernen','tt.delete':'L\u00f6schen',
-    'copied':'Kopiert!','folder.newFilePh':'datei.md','folder.newFolderPh':'Ordnername',
-    'set.ai':'KI-Chat','set.aiApiUrl':'API-URL','set.aiApiKey':'API-Schlüssel','set.aiModel':'Modell',
-    'tt.chat':'KI-Chat (Ctrl+Shift+A)','tt.chatSend':'Senden','tt.chatClear':'Neue Unterhaltung','tt.chatHistory':'Verlauf',
-    'chat.title':'KI-Chat','chat.empty':'Stelle Fragen zu deinem Dokument',
-    'chat.emptyHint':'Die Unterhaltung nutzt die geöffnete Datei als Kontext.',
-    'chat.placeholder':'Frage zu diesem Dokument…','chat.configNeeded':'Konfiguriere KI in Einstellungen → KI-Chat, um zu starten.',
-    'chat.configTitle':'KI-Chat benötigt Konfiguration','chat.configDesc':'API-URL, Schlüssel und Modell in den Einstellungen setzen.',
-    'chat.openSettings':'KI-Einstellungen öffnen',
-    'chat.historyEmpty':'Keine gespeicherten Unterhaltungen für dieses Dokument',
-    'chat.askSectionPrefix':'Basierend auf diesem Abschnitt des Dokuments',
-    'chat.err.configTitle':'KI-Einstellungen prüfen','chat.err.configDesc':'API-URL, API-Schlüssel oder Modell fehlt oder ist ungültig.',
-    'chat.err.authTitle':'Authentifizierung fehlgeschlagen','chat.err.authDesc':'Der API-Schlüssel wurde abgelehnt. Schlüssel und Endpunkt prüfen.',
-    'chat.err.rateTitle':'Rate-Limit erreicht','chat.err.rateDesc':'Der Anbieter begrenzt Anfragen oder das Kontingent ist aufgebraucht.',
-    'chat.err.networkTitle':'Netzwerkfehler','chat.err.networkDesc':'KI-Anbieter nicht erreichbar. Internet, URL oder Firewall/Proxy prüfen.',
-    'chat.err.genericTitle':'KI-Anfrage fehlgeschlagen','chat.err.genericDesc':'Die KI-Anfrage konnte nicht abgeschlossen werden.',
-  },
-  pt: {
-    'nav.recent':'Recente','nav.folder':'Pasta','nav.outline':'Estrutura',
-    'hdr.recents':'Ficheiros Recentes','hdr.outline':'Estrutura','hdr.noFolder':'Sem pasta',
-    'empty.recents':'Sem ficheiros recentes','empty.folder':'Sem pasta aberta','empty.noDoc':'Sem documento aberto',
-    'btn.openFile':'Abrir Ficheiro','btn.openFolder':'Abrir Pasta','btn.newFile':'Novo Ficheiro',
-    'welcome.tagline':'Um lindo leitor de Markdown','welcome.recent':'Recente',
-    'sc.openFile':'Abrir ficheiro','sc.newTab':'Novo separador','sc.closeTab':'Fechar separador',
-    'sc.save':'Guardar','sc.editMode':'Modo de edi\xe7\xe3o','sc.find':'Localizar','sc.sidebar':'Painel lateral',
-    'set.settings':'Defini\xe7\xf5es','set.general':'Geral','set.language':'Idioma',
-    'set.appearance':'Apar\xeancia','set.theme':'Tema','set.accentColor':'Cor de destaque',
-    'theme.dark':'Escuro','theme.light':'Claro','theme.sepia':'S\xe9pia',
-    'set.typography':'Tipografia','set.fontFamily':'Fam\xedlia de fontes',
-    'font.serif':'Serif','font.sans':'Sans-serif','font.mono':'Monoespa\xe7ada',
-    'set.fontSize':'Tamanho da fonte','set.lineHeight':'Altura da linha',
-    'set.layout':'Layout','set.contentWidth':'Largura do conte\xfado',
-    'set.code':'C\xf3digo','set.codeTheme':'Tema de c\xf3digo',
-    'set.reading':'Leitura','set.liveReload':'Recarregar ao alterar',
-    'set.wordCount':'Mostrar contagem de palavras','set.smoothScroll':'Rolagem suave',
-    'set.rememberScrollPos':'Lembrar posição de rolagem',
-    'btn.resetDefaults':'Repor predefini\xe7\xf5es',
-    'stat.encoding':'UTF-8','stat.type':'Markdown',
-    'find.placeholder':'Localizar no documento\u2026','editor.placeholder':'Come\xe7ar a escrever Markdown\u2026',
-    'words':'palavras','minRead':'min de leitura','chars':'caracteres',
-    'justNow':'agora mesmo','mAgo':'min atr\xe1s','hAgo':'h atr\xe1s','dAgo':'d atr\xe1s',
-    'noResults':'Sem resultados','saveFailed':'Falha ao guardar!',
-    'drop.title':'Soltar para abrir','drop.sub':'Ficheiros Markdown e texto aceites',
-    'tt.unsaved':'Altera\xe7\xf5es n\xe3o guardadas','tt.find':'Localizar (Ctrl+F)','tt.settings':'Defini\xe7\xf5es (Ctrl+,)',
-    'tt.sidebar':'Painel lateral (Ctrl+B)','tt.openFile':'Abrir ficheiro','tt.openFolder':'Abrir pasta',
-    'tt.newTab':'Novo separador (Ctrl+T)','tt.closeTab':'Fechar (Ctrl+W)',
-    'tt.preview':'Pr\xe9-visualiza\xe7\xe3o (Ctrl+Shift+P)','tt.split':'Vista dividida (Ctrl+Shift+E)','tt.edit':'Modo de edi\xe7\xe3o (Ctrl+E)',
-    'tt.amber':'\xc2mbar','tt.sky':'C\xe9u','tt.emerald':'Esmeralda','tt.violet':'Violeta','tt.rose':'Rosa','tt.teal':'Verde-azulado',
-    'tt.tb.bold':'Negrito (Ctrl+B)','tt.tb.italic':'It\xe1lico (Ctrl+I)','tt.tb.strike':'Riscado',
-    'tt.tb.h1':'T\xedtulo 1','tt.tb.h2':'T\xedtulo 2','tt.tb.h3':'T\xedtulo 3',
-    'tt.tb.code':'C\xf3digo em linha (Ctrl+\x60)','tt.tb.codeblock':'Bloco de c\xf3digo',
-    'tt.tb.link':'Liga\xe7\xe3o (Ctrl+K)','tt.tb.image':'Imagem',
-    'tt.tb.ul':'Lista de marcadores','tt.tb.ol':'Lista numerada','tt.tb.blockquote':'Cita\xe7\xe3o','tt.tb.hr':'Linha horizontal',
-    'dlg.unsaved.title':'Altera\xe7\xf5es n\xe3o guardadas','dlg.unsaved.msg':'Guardar altera\xe7\xf5es em \u201c{name}\u201d?',
-    'dlg.unsaved.detail':'As suas altera\xe7\xf5es ser\xe3o perdidas se n\xe3o as guardar.',
-    'dlg.unsaved.save':'Guardar','dlg.unsaved.dontSave':'N\xe3o guardar','dlg.unsaved.cancel':'Cancelar',
-    'tt.findPrev':'Correspond\u00eancia anterior','tt.findNext':'Pr\u00f3xima correspond\u00eancia',
-    'cm.cut':'Cortar','cm.copy':'Copiar','cm.paste':'Colar','cm.copyMd':'Copiar com Markdown','cm.copyText':'Copiar texto simples','cm.findDoc':'Localizar no documento','cm.findEditor':'Localizar no editor',
-    'tt.newFile':'Novo ficheiro','tt.newFolder':'Nova pasta','tt.removeRecent':'Remover dos recentes','tt.delete':'Eliminar',
-    'copied':'Copiado!','folder.newFilePh':'ficheiro.md','folder.newFolderPh':'nome da pasta',
-    'set.ai':'Chat IA','set.aiApiUrl':'URL da API','set.aiApiKey':'Chave da API','set.aiModel':'Modelo',
-    'tt.chat':'Chat IA (Ctrl+Shift+A)','tt.chatSend':'Enviar','tt.chatClear':'Nova conversa','tt.chatHistory':'Histórico',
-    'chat.title':'Chat IA','chat.empty':'Pergunte qualquer coisa sobre o seu documento',
-    'chat.emptyHint':'A conversa usa o ficheiro aberto como contexto.',
-    'chat.placeholder':'Pergunte sobre este documento…','chat.configNeeded':'Configure a IA em Definições → Chat IA para começar.',
-    'chat.configTitle':'O Chat IA requer configuração','chat.configDesc':'Defina URL da API, chave e modelo nas definições.',
-    'chat.openSettings':'Abrir definições de IA',
-    'chat.historyEmpty':'Sem conversas guardadas para este documento',
-    'chat.askSectionPrefix':'Com base nesta secção do documento',
-    'chat.err.configTitle':'Verifique as definições de IA','chat.err.configDesc':'URL, chave API ou modelo ausente/inválido.',
-    'chat.err.authTitle':'Falha de autenticação','chat.err.authDesc':'A chave API foi rejeitada. Verifique a chave e o endpoint.',
-    'chat.err.rateTitle':'Limite de taxa atingido','chat.err.rateDesc':'O fornecedor está a limitar pedidos ou a quota esgotou.',
-    'chat.err.networkTitle':'Erro de rede','chat.err.networkDesc':'Não foi possível alcançar o fornecedor IA. Verifique rede, URL ou firewall/proxy.',
-    'chat.err.genericTitle':'Falha no pedido de IA','chat.err.genericDesc':'O pedido de IA não pôde ser concluído.',
-  },
-  ja: {
-    'nav.recent':'\u6700\u8fd1','nav.folder':'\u30d5\u30a9\u30eb\u30c0','nav.outline':'\u30a2\u30a6\u30c8\u30e9\u30a4\u30f3',
-    'hdr.recents':'\u6700\u8fd1\u306e\u30d5\u30a1\u30a4\u30eb','hdr.outline':'\u30a2\u30a6\u30c8\u30e9\u30a4\u30f3','hdr.noFolder':'\u30d5\u30a9\u30eb\u30c0\u306a\u3057',
-    'empty.recents':'\u6700\u8fd1\u306e\u30d5\u30a1\u30a4\u30eb\u306f\u3042\u308a\u307e\u305b\u3093','empty.folder':'\u30d5\u30a9\u30eb\u30c0\u304c\u958b\u3044\u3066\u3044\u307e\u305b\u3093','empty.noDoc':'\u30c9\u30ad\u30e5\u30e1\u30f3\u30c8\u304c\u958b\u3044\u3066\u3044\u307e\u305b\u3093',
-    'btn.openFile':'\u30d5\u30a1\u30a4\u30eb\u3092\u958b\u304f','btn.openFolder':'\u30d5\u30a9\u30eb\u30c0\u3092\u958b\u304f','btn.newFile':'\u65b0\u898f\u30d5\u30a1\u30a4\u30eb',
-    'welcome.tagline':'\u7f8e\u3057\u3044Markdown\u30ea\u30fc\u30c0\u30fc','welcome.recent':'\u6700\u8fd1',
-    'sc.openFile':'\u30d5\u30a1\u30a4\u30eb\u3092\u958b\u304f','sc.newTab':'\u65b0\u3057\u3044\u30bf\u30d6','sc.closeTab':'\u30bf\u30d6\u3092\u9589\u3058\u308b',
-    'sc.save':'\u4fdd\u5b58','sc.editMode':'\u7de8\u96c6\u30e2\u30fc\u30c9','sc.find':'\u691c\u7d22','sc.sidebar':'\u30b5\u30a4\u30c9\u30d0\u30fc',
-    'set.settings':'\u8a2d\u5b9a','set.general':'\u4e00\u822c','set.language':'\u8a00\u8a9e',
-    'set.appearance':'\u5916\u89b3','set.theme':'\u30c6\u30fc\u30de','set.accentColor':'\u30a2\u30af\u30bb\u30f3\u30c8\u30ab\u30e9\u30fc',
-    'theme.dark':'\u30c0\u30fc\u30af','theme.light':'\u30e9\u30a4\u30c8','theme.sepia':'\u30bb\u30d4\u30a2',
-    'set.typography':'\u30bf\u30a4\u30dd\u30b0\u30e9\u30d5\u30a3','set.fontFamily':'\u30d5\u30a9\u30f3\u30c8\u30d5\u30a1\u30df\u30ea\u30fc',
-    'font.serif':'\u30bb\u30ea\u30d5','font.sans':'\u30b5\u30f3\u30bb\u30ea\u30d5','font.mono':'\u7b49\u5e45',
-    'set.fontSize':'\u30d5\u30a9\u30f3\u30c8\u30b5\u30a4\u30ba','set.lineHeight':'\u884c\u306e\u9ad8\u3055',
-    'set.layout':'\u30ec\u30a4\u30a2\u30a6\u30c8','set.contentWidth':'\u30b3\u30f3\u30c6\u30f3\u30c4\u5e45',
-    'set.code':'\u30b3\u30fc\u30c9','set.codeTheme':'\u30b3\u30fc\u30c9\u30c6\u30fc\u30de',
-    'set.reading':'\u8aad\u66f8','set.liveReload':'\u30d5\u30a1\u30a4\u30eb\u5909\u66f4\u6642\u306b\u518d\u8aad\u8fbc',
-    'set.wordCount':'\u5358\u8a9e\u6570\u3092\u8868\u793a','set.smoothScroll':'\u30b9\u30e0\u30fc\u30ba\u30b9\u30af\u30ed\u30fc\u30eb',
-    'set.rememberScrollPos':'スクロール位置を記憶',
-    'btn.resetDefaults':'\u30c7\u30d5\u30a9\u30eb\u30c8\u306b\u30ea\u30bb\u30c3\u30c8',
-    'stat.encoding':'UTF-8','stat.type':'Markdown',
-    'find.placeholder':'\u30c9\u30ad\u30e5\u30e1\u30f3\u30c8\u3092\u691c\u7d22\u2026','editor.placeholder':'Markdown\u3092\u5165\u529b\u3057\u3066\u304f\u3060\u3055\u3044\u2026',
-    'words':'\u8a9e','minRead':'\u5206\u3067\u8aad\u3081\u308b','chars':'\u6587\u5b57',
-    'justNow':'\u305f\u3063\u305f\u4eca','mAgo':'\u5206\u524d','hAgo':'\u6642\u9593\u524d','dAgo':'\u65e5\u524d',
-    'noResults':'\u7d50\u679c\u306a\u3057','saveFailed':'\u4fdd\u5b58\u306b\u5931\u6557\u3057\u307e\u3057\u305f\uff01',
-    'drop.title':'\u30c9\u30ed\u30c3\u30d7\u3057\u3066\u958b\u304f','drop.sub':'Markdown\u3068\u30c6\u30ad\u30b9\u30c8\u30d5\u30a1\u30a4\u30eb\u306b\u5bfe\u5fdc',
-    'tt.unsaved':'\u672a\u4fdd\u5b58\u306e\u5909\u66f4','tt.find':'\u691c\u7d22 (Ctrl+F)','tt.settings':'\u8a2d\u5b9a (Ctrl+,)',
-    'tt.sidebar':'\u30b5\u30a4\u30c9\u30d0\u30fc (Ctrl+B)','tt.openFile':'\u30d5\u30a1\u30a4\u30eb\u3092\u958b\u304f','tt.openFolder':'\u30d5\u30a9\u30eb\u30c0\u3092\u958b\u304f',
-    'tt.newTab':'\u65b0\u3057\u3044\u30bf\u30d6 (Ctrl+T)','tt.closeTab':'\u9589\u3058\u308b (Ctrl+W)',
-    'tt.preview':'\u30d7\u30ec\u30d3\u30e5\u30fc (Ctrl+Shift+P)','tt.split':'\u5206\u5272\u8868\u793a (Ctrl+Shift+E)','tt.edit':'\u7de8\u96c6\u30e2\u30fc\u30c9 (Ctrl+E)',
-    'tt.amber':'\u30a2\u30f3\u30d0\u30fc','tt.sky':'\u30b9\u30ab\u30a4','tt.emerald':'\u30a8\u30e1\u30e9\u30eb\u30c9','tt.violet':'\u30d0\u30a4\u30aa\u30ec\u30c3\u30c8','tt.rose':'\u30ed\u30fc\u30ba','tt.teal':'\u30c6\u30a3\u30fc\u30eb',
-    'tt.tb.bold':'\u592a\u5b57 (Ctrl+B)','tt.tb.italic':'\u659c\u4f53 (Ctrl+I)','tt.tb.strike':'\u53d6\u308a\u6d88\u3057\u7dda',
-    'tt.tb.h1':'\u898b\u51fa\u3057\uff11','tt.tb.h2':'\u898b\u51fa\u3057\uff12','tt.tb.h3':'\u898b\u51fa\u3057\uff13',
-    'tt.tb.code':'\u30a4\u30f3\u30e9\u30a4\u30f3\u30b3\u30fc\u30c9 (Ctrl+\x60)','tt.tb.codeblock':'\u30b3\u30fc\u30c9\u30d6\u30ed\u30c3\u30af',
-    'tt.tb.link':'\u30ea\u30f3\u30af (Ctrl+K)','tt.tb.image':'\u753b\u50cf',
-    'tt.tb.ul':'\u7b87\u6761\u66f8\u304d','tt.tb.ol':'\u756a\u53f7\u4ed8\u304d\u30ea\u30b9\u30c8','tt.tb.blockquote':'\u5f15\u7528','tt.tb.hr':'\u6c34\u5e73\u7dda',
-    'dlg.unsaved.title':'\u672a\u4fdd\u5b58\u306e\u5909\u66f4','dlg.unsaved.msg':'\u300c{name}\u300d\u3078\u306e\u5909\u66f4\u3092\u4fdd\u5b58\u3057\u307e\u3059\u304b\uff1f',
-    'dlg.unsaved.detail':'\u4fdd\u5b58\u3057\u306a\u3044\u3068\u5909\u66f4\u304c\u5931\u308f\u308c\u307e\u3059\u3002',
-    'dlg.unsaved.save':'\u4fdd\u5b58','dlg.unsaved.dontSave':'\u4fdd\u5b58\u3057\u306a\u3044','dlg.unsaved.cancel':'\u30ad\u30e3\u30f3\u30bb\u30eb',
-    'tt.findPrev':'\u524d\u306e\u4e00\u81f4','tt.findNext':'\u6b21\u306e\u4e00\u81f4',
-    'cm.copyMd':'Markdown\u3067\u30b3\u30d4\u30fc','cm.copyText':'\u30c6\u30ad\u30b9\u30c8\u3068\u3057\u3066\u30b3\u30d4\u30fc','cm.findDoc':'\u30c9\u30ad\u30e5\u30e1\u30f3\u30c8\u3067\u691c\u7d22','cm.findEditor':'\u30a8\u30c7\u30a3\u30bf\u3067\u691c\u7d22',
-    'tt.newFile':'\u65b0\u3057\u3044\u30d5\u30a1\u30a4\u30eb','tt.newFolder':'\u65b0\u3057\u3044\u30d5\u30a9\u30eb\u30c0','tt.removeRecent':'\u6700\u8fd1\u304b\u3089\u524a\u9664','tt.delete':'\u524a\u9664',
-    'copied':'\u30b3\u30d4\u30fc\u3057\u307e\u3057\u305f\uff01','folder.newFilePh':'\u30d5\u30a1\u30a4\u30eb\u540d.md','folder.newFolderPh':'\u30d5\u30a9\u30eb\u30c0\u540d',
-    'set.ai':'AIチャット','set.aiApiUrl':'API URL','set.aiApiKey':'APIキー','set.aiModel':'モデル',
-    'tt.chat':'AIチャット (Ctrl+Shift+A)','tt.chatSend':'送信','tt.chatClear':'新しい会話','tt.chatHistory':'履歴',
-    'chat.title':'AIチャット','chat.empty':'ドキュメントについて質問してください',
-    'chat.emptyHint':'会話は開いているファイルをコンテキストとして利用します。',
-    'chat.placeholder':'このドキュメントについて質問…','chat.configNeeded':'設定 → AIチャットでAI設定を行ってから開始してください。',
-    'chat.configTitle':'AIチャットには設定が必要です','chat.configDesc':'設定でAPI URL、キー、モデルを設定してください。',
-    'chat.openSettings':'AI設定を開く',
-    'chat.historyEmpty':'このドキュメントの保存済み会話はありません',
-    'chat.askSectionPrefix':'このドキュメントのこのセクションに基づいて',
-    'chat.err.configTitle':'AI設定を確認してください','chat.err.configDesc':'API URL、キー、またはモデルが不足または無効です。',
-    'chat.err.authTitle':'認証に失敗しました','chat.err.authDesc':'APIキーが拒否されました。キーとエンドポイントを確認してください。',
-    'chat.err.rateTitle':'レート制限に達しました','chat.err.rateDesc':'プロバイダー側で制限中、またはクォータ超過です。',
-    'chat.err.networkTitle':'ネットワークエラー','chat.err.networkDesc':'AIプロバイダーに接続できません。ネットワーク、URL、FW/プロキシを確認してください。',
-    'chat.err.genericTitle':'AIリクエストに失敗しました','chat.err.genericDesc':'AIリクエストを完了できませんでした。',
-  },
-  zh: {
-    'nav.recent':'\u6700\u8fd1','nav.folder':'\u6587\u4ef6\u5939','nav.outline':'\u5927\u7eb2',
-    'hdr.recents':'\u6700\u8fd1\u6587\u4ef6','hdr.outline':'\u5927\u7eb2','hdr.noFolder':'\u65e0\u6587\u4ef6\u5939',
-    'empty.recents':'\u6ca1\u6709\u6700\u8fd1\u6587\u4ef6','empty.folder':'\u672a\u6253\u5f00\u6587\u4ef6\u5939','empty.noDoc':'\u672a\u6253\u5f00\u6587\u6863',
-    'btn.openFile':'\u6253\u5f00\u6587\u4ef6','btn.openFolder':'\u6253\u5f00\u6587\u4ef6\u5939','btn.newFile':'\u65b0\u5efa\u6587\u4ef6',
-    'welcome.tagline':'\u4e00\u6b3e\u7cbe\u7f8e\u7684 Markdown \u9605\u8bfb\u5668','welcome.recent':'\u6700\u8fd1',
-    'sc.openFile':'\u6253\u5f00\u6587\u4ef6','sc.newTab':'\u65b0\u6807\u7b7e\u9875','sc.closeTab':'\u5173\u95ed\u6807\u7b7e\u9875',
-    'sc.save':'\u4fdd\u5b58','sc.editMode':'\u7f16\u8f91\u6a21\u5f0f','sc.find':'\u67e5\u627e','sc.sidebar':'\u4fa7\u8fb9\u680f',
-    'set.settings':'\u8bbe\u7f6e','set.general':'\u901a\u7528','set.language':'\u8bed\u8a00',
-    'set.appearance':'\u5916\u89c2','set.theme':'\u4e3b\u9898','set.accentColor':'\u5f3a\u8c03\u8272',
-    'theme.dark':'\u6df1\u8272','theme.light':'\u6d45\u8272','theme.sepia':'\u68d5\u8910\u8272',
-    'set.typography':'\u5b57\u4f53\u6392\u7248','set.fontFamily':'\u5b57\u4f53\u65cf',
-    'font.serif':'\u886c\u7ebf\u4f53','font.sans':'\u65e0\u886c\u7ebf\u4f53','font.mono':'\u7b49\u5bbd\u5b57\u4f53',
-    'set.fontSize':'\u5b57\u4f53\u5927\u5c0f','set.lineHeight':'\u884c\u9ad8',
-    'set.layout':'\u5e03\u5c40','set.contentWidth':'\u5185\u5bb9\u5bbd\u5ea6',
-    'set.code':'\u4ee3\u7801','set.codeTheme':'\u4ee3\u7801\u4e3b\u9898',
-    'set.reading':'\u9605\u8bfb','set.liveReload':'\u6587\u4ef6\u53d8\u66f4\u65f6\u81ea\u52a8\u91cd\u8f7d',
-    'set.wordCount':'\u663e\u793a\u5b57\u6570','set.smoothScroll':'\u5e73\u6ed1\u6eda\u52a8',
-    'set.rememberScrollPos':'记住滚动位置',
-    'btn.resetDefaults':'\u6062\u590d\u9ed8\u8ba4\u8bbe\u7f6e',
-    'stat.encoding':'UTF-8','stat.type':'Markdown',
-    'find.placeholder':'\u5728\u6587\u6863\u4e2d\u67e5\u627e\u2026','editor.placeholder':'\u5f00\u59cb\u4e66\u5199 Markdown\u2026',
-    'words':'\u8bcd','minRead':'\u5206\u949f\u9605\u8bfb','chars':'\u5b57\u7b26',
-    'justNow':'\u521a\u521a','mAgo':'\u5206\u949f\u524d','hAgo':'\u5c0f\u65f6\u524d','dAgo':'\u5929\u524d',
-    'noResults':'\u65e0\u7ed3\u679c','saveFailed':'\u4fdd\u5b58\u5931\u8d25\uff01',
-    'drop.title':'\u62d6\u653e\u4ee5\u6253\u5f00','drop.sub':'\u652f\u6301 Markdown \u548c\u6587\u672c\u6587\u4ef6',
-    'tt.unsaved':'\u672a\u4fdd\u5b58\u7684\u66f4\u6539','tt.find':'\u67e5\u627e (Ctrl+F)','tt.settings':'\u8bbe\u7f6e (Ctrl+,)',
-    'tt.sidebar':'\u4fa7\u8fb9\u680f (Ctrl+B)','tt.openFile':'\u6253\u5f00\u6587\u4ef6','tt.openFolder':'\u6253\u5f00\u6587\u4ef6\u5939',
-    'tt.newTab':'\u65b0\u6807\u7b7e\u9875 (Ctrl+T)','tt.closeTab':'\u5173\u95ed (Ctrl+W)',
-    'tt.preview':'\u9884\u89c8 (Ctrl+Shift+P)','tt.split':'\u5206\u5c4f\u89c6\u56fe (Ctrl+Shift+E)','tt.edit':'\u7f16\u8f91\u6a21\u5f0f (Ctrl+E)',
-    'tt.amber':'\u7425\u73c0','tt.sky':'\u5929\u84dd','tt.emerald':'\u7fe1\u7fe0','tt.violet':'\u7d2b\u7f57\u5170','tt.rose':'\u73ab\u7ea2','tt.teal':'\u9752\u7fe0',
-    'tt.tb.bold':'\u7c97\u4f53 (Ctrl+B)','tt.tb.italic':'\u659c\u4f53 (Ctrl+I)','tt.tb.strike':'\u5220\u9664\u7ebf',
-    'tt.tb.h1':'\u6807\u9898 1','tt.tb.h2':'\u6807\u9898 2','tt.tb.h3':'\u6807\u9898 3',
-    'tt.tb.code':'\u884c\u5185\u4ee3\u7801 (Ctrl+\x60)','tt.tb.codeblock':'\u4ee3\u7801\u5757',
-    'tt.tb.link':'\u94fe\u63a5 (Ctrl+K)','tt.tb.image':'\u56fe\u7247',
-    'tt.tb.ul':'\u65e0\u5e8f\u5217\u8868','tt.tb.ol':'\u6709\u5e8f\u5217\u8868','tt.tb.blockquote':'\u5f15\u7528','tt.tb.hr':'\u5206\u9694\u7ebf',
-    'dlg.unsaved.title':'\u672a\u4fdd\u5b58\u7684\u66f4\u6539','dlg.unsaved.msg':'\u4fdd\u5b58\u5bf9\u201c{name}\u201d\u7684\u66f4\u6539\uff1f',
-    'dlg.unsaved.detail':'\u5982\u679c\u4e0d\u4fdd\u5b58\uff0c\u66f4\u6539\u5c06\u4f1a\u4e22\u5931\u3002',
-    'dlg.unsaved.save':'\u4fdd\u5b58','dlg.unsaved.dontSave':'\u4e0d\u4fdd\u5b58','dlg.unsaved.cancel':'\u53d6\u6d88',
-    'tt.findPrev':'\u4e0a\u4e00\u4e2a\u5339\u914d','tt.findNext':'\u4e0b\u4e00\u4e2a\u5339\u914d',
-    'cm.cut':'剪切','cm.copy':'复制','cm.paste':'粘贴','cm.copyMd':'\u590d\u5236\u4e3a Markdown','cm.copyText':'\u590d\u5236\u4e3a\u7eaf\u6587\u672c','cm.findDoc':'\u5728\u6587\u6863\u4e2d\u67e5\u627e','cm.findEditor':'\u5728\u7f16\u8f91\u5668\u4e2d\u67e5\u627e',
-    'tt.newFile':'\u65b0\u5efa\u6587\u4ef6','tt.newFolder':'\u65b0\u5efa\u6587\u4ef6\u5939','tt.removeRecent':'\u4ece\u6700\u8fd1\u79fb\u9664','tt.delete':'\u5220\u9664',
-    'copied':'\u5df2\u590d\u5236\uff01','folder.newFilePh':'\u6587\u4ef6\u540d.md','folder.newFolderPh':'\u6587\u4ef6\u5939\u540d\u79f0',
-    'set.ai':'AI 聊天','set.aiApiUrl':'API 地址','set.aiApiKey':'API 密钥','set.aiModel':'模型',
-    'tt.chat':'AI 聊天 (Ctrl+Shift+A)','tt.chatSend':'发送','tt.chatClear':'新建会话','tt.chatHistory':'历史记录',
-    'chat.title':'AI 聊天','chat.empty':'可针对当前文档进行提问',
-    'chat.emptyHint':'会话会使用当前打开文件作为上下文。',
-    'chat.placeholder':'询问此文档相关问题…','chat.configNeeded':'请先在 设置 → AI 聊天 中完成配置。',
-    'chat.configTitle':'AI 聊天需要配置','chat.configDesc':'请在设置中填写 API 地址、密钥和模型。',
-    'chat.openSettings':'打开 AI 设置',
-    'chat.historyEmpty':'该文档暂无已保存会话',
-    'chat.askSectionPrefix':'基于文档中的这段内容',
-    'chat.err.configTitle':'请检查 AI 设置','chat.err.configDesc':'API 地址、密钥或模型缺失或无效。',
-    'chat.err.authTitle':'鉴权失败','chat.err.authDesc':'API 密钥被拒绝，请检查密钥和接口地址。',
-    'chat.err.rateTitle':'触发速率限制','chat.err.rateDesc':'请求过于频繁或额度已用尽，请稍后再试。',
-    'chat.err.networkTitle':'网络错误','chat.err.networkDesc':'无法连接 AI 服务，请检查网络、URL 或防火墙/代理设置。',
-    'chat.err.genericTitle':'AI 请求失败','chat.err.genericDesc':'无法完成此次 AI 请求。',
-  },
-};
+const LOCALES = window.MANDY_LOCALES || {};
 
 let currentLang = 'en';
 let loadedFolderName = null; // null = no folder open yet
@@ -455,6 +48,7 @@ function applyTranslations() {
   $$('[data-i18n]').forEach(el => { el.textContent = t(el.dataset.i18n); });
   $$('[data-i18n-placeholder]').forEach(el => { el.placeholder = t(el.dataset.i18nPlaceholder); });
   $$('[data-i18n-title]').forEach(el => { el.title = t(el.dataset.i18nTitle); });
+  $$('[data-i18n-aria-label]').forEach(el => { el.setAttribute('aria-label', t(el.dataset.i18nAriaLabel)); });
 }
 
 function refreshDynamicText() {
@@ -468,6 +62,11 @@ function refreshDynamicText() {
   }
 }
 
+function updateRefreshFolderButtonState() {
+  if (!dom.refreshFolderBtn) return;
+  dom.refreshFolderBtn.disabled = !loadedFolderPath;
+}
+
 function setLanguage(lang) {
   currentLang = LOCALES[lang] ? lang : 'en';
   document.documentElement.lang = currentLang;
@@ -475,6 +74,7 @@ function setLanguage(lang) {
   refreshDynamicText();
   renderChatMessages();
   renderChatHistoryList();
+  renderChatContextFiles();
 }
 
 // ---- DOM refs ----
@@ -495,12 +95,16 @@ const dom = {
   folderList: $('#folder-list'),
   folderEmpty: $('#folder-empty'),
   folderName: $('#folder-name'),
+  refreshFolderBtn: $('#btn-refresh-folder'),
   tocList: $('#toc-list'),
   tocEmpty: $('#toc-empty'),
   welcome: $('#welcome'),
   welcomeRecents: $('#welcome-recents'),
   viewer: $('#viewer'),
   scrollContainer: $('#scroll-container'),
+  tabBar: $('#tab-bar'),
+  tabScrollLeft: $('#tab-scroll-left'),
+  tabScrollRight: $('#tab-scroll-right'),
   mdContent: $('#md-content'),
   docFilename: $('#doc-filename'),
   docStats: { words: $('#stat-words'), read: $('#stat-read'), chars: $('#stat-chars') },
@@ -520,14 +124,16 @@ const dom = {
   chatEmpty: $('#chat-empty'),
   chatInput: $('#chat-input'),
   chatSend: $('#chat-send'),
+  chatContextList: $('#chat-context-list'),
+  chatContextAdd: $('#chat-context-add'),
+  chatPathSuggest: $('#chat-path-suggest'),
+  chatPathSuggestList: $('#chat-path-suggest-list'),
   chatHistoryBtn: $('#chat-history'),
   chatHistoryMenu: $('#chat-history-menu'),
   chatHistoryList: $('#chat-history-list'),
-  chatFileBadge: $('#chat-file-badge'),
-  chatFileName: $('#chat-file-name'),
 };
 
-// ---- Heading IDs (added post-render via DOM — sidesteps marked v13 token quirks) ----
+// ---- Heading IDs (added post-render via DOM Ã¢â‚¬â€ sidesteps marked v13 token quirks) ----
 function addHeadingIds() {
   $$('h1,h2,h3,h4,h5,h6', dom.mdContent).forEach(h => {
     if (!h.id) {
@@ -557,7 +163,7 @@ function applyHljsTheme(theme) {
   link.onerror = () => { link.href = base + 'github-dark.min.css'; };
 }
 
-// ---- Markdown render (re-render via IPC — used only when settings change) ----
+// ---- Markdown render (re-render via IPC Ã¢â‚¬â€ used only when settings change) ----
 async function renderMarkdown(mdText) {
   return window.mandy.renderMarkdown(mdText, currentFile);
 }
@@ -595,7 +201,7 @@ async function updatePreview() {
 //
 // The critical detail: editorY must be the VISUAL pixel position of each
 // heading in the textarea, not `lineIndex * lineHeight`.  Long paragraphs
-// wrap to multiple visual lines — a simple line-count formula misses this
+// wrap to multiple visual lines Ã¢â‚¬â€ a simple line-count formula misses this
 // and causes the preview to jump ahead (overscroll).
 //
 // Solution: a hidden "mirror" div styled identically to the textarea renders
@@ -621,7 +227,7 @@ function buildScrollAnchors() {
     charOffset += lines[i].length + 1; // +1 for '\n'
   }
 
-  // 2. Preview heading positions — absolute Y inside the scroll container.
+  // 2. Preview heading positions Ã¢â‚¬â€ absolute Y inside the scroll container.
   const scTop = sc.getBoundingClientRect().top;
   const norm  = s => s.toLowerCase().replace(/[`*_~[\]()]/g, '').replace(/\s+/g, ' ').trim();
   const prevHeadings = $$('h1,h2,h3,h4,h5,h6', dom.mdContent).map(h => ({
@@ -629,7 +235,7 @@ function buildScrollAnchors() {
     text: norm(h.textContent),
   }));
 
-  // 3. Match source headings → preview headings (sequential, by normalised text).
+  // 3. Match source headings Ã¢â€ â€™ preview headings (sequential, by normalised text).
   const pairs = [];
   let pIdx = 0;
   for (const sh of srcHeadings) {
@@ -641,7 +247,7 @@ function buildScrollAnchors() {
   }
 
   if (pairs.length === 0) {
-    // No matching headings — fall back to simple % sync.
+    // No matching headings Ã¢â‚¬â€ fall back to simple % sync.
     return [
       { editorY: 0,                                        previewY: 0 },
       { editorY: Math.max(0, ta.scrollHeight - ta.clientHeight),
@@ -651,7 +257,7 @@ function buildScrollAnchors() {
 
   // 4. Measure accurate visual Y positions with a mirror div.
   //    A mirror div styled like the textarea renders identical text with the
-  //    same wrapping — its scrollHeight after filling with text up to a heading
+  //    same wrapping Ã¢â‚¬â€ its scrollHeight after filling with text up to a heading
   //    equals the pixel offset of that heading inside the textarea.
   const cs = getComputedStyle(ta);
   const mirror = document.createElement('div');
@@ -661,7 +267,7 @@ function buildScrollAnchors() {
     pointerEvents: 'none',
     left:          '-9999px',
     top:           '0',
-    // box-sizing:border-box + width:clientWidth → same content width as textarea
+    // box-sizing:border-box + width:clientWidth Ã¢â€ â€™ same content width as textarea
     width:         ta.clientWidth + 'px',
     boxSizing:     'border-box',
     fontFamily:    cs.fontFamily,
@@ -672,7 +278,7 @@ function buildScrollAnchors() {
     paddingTop:    cs.paddingTop,
     paddingRight:  cs.paddingRight,
     paddingLeft:   cs.paddingLeft,
-    paddingBottom: '0',          // omit bottom padding — we measure from the top
+    paddingBottom: '0',          // omit bottom padding Ã¢â‚¬â€ we measure from the top
     whiteSpace:    'pre-wrap',
     wordBreak:     'break-word',
     overflowWrap:  'break-word',
@@ -681,7 +287,7 @@ function buildScrollAnchors() {
 
   const anchors = [{ editorY: 0, previewY: 0 }];
   for (const p of pairs) {
-    // Text BEFORE the heading → rendered height = Y where heading starts.
+    // Text BEFORE the heading Ã¢â€ â€™ rendered height = Y where heading starts.
     mirror.textContent = text.slice(0, p.charOffset);
     anchors.push({ editorY: mirror.scrollHeight, previewY: p.previewY });
   }
@@ -719,7 +325,7 @@ function syncEditorToPreview() {
   clearTimeout(_scrollDriverTimer);
   _scrollDriverTimer = setTimeout(() => { _scrollDriver = null; }, 100);
   const a = getScrollAnchors();
-  // 'instant' bypasses scroll-behavior:smooth — the smooth animation fires
+  // 'instant' bypasses scroll-behavior:smooth Ã¢â‚¬â€ the smooth animation fires
   // scroll events for ~300 ms, outlasting the 100 ms driver timeout and
   // causing the preview to bounce the editor back ("pullback" jitter).
   dom.scrollContainer.scrollTo({
@@ -795,6 +401,7 @@ function createTab(data = {}) {
     previewScroll: data.previewScroll || 0,
   };
   tabs.push(tab);
+  tabBarScrollToEndPending = true;
   return tab;
 }
 
@@ -855,7 +462,7 @@ function activateTab(tabId) {
     $('#doc-meta').style.display = 'none';
   }
 
-  // Welcome tab: empty, no path, not in edit mode → show welcome screen
+  // Welcome tab: empty, no path, not in edit mode Ã¢â€ â€™ show welcome screen
   const isWelcomeTab = !tab.path && !tab.content && !tab.unsaved && tab.viewMode !== 'edit';
   dom.welcome.classList.toggle('hidden', !isWelcomeTab);
   dom.viewer.classList.toggle('hidden',   isWelcomeTab);
@@ -876,6 +483,7 @@ function activateTab(tabId) {
 
   renderTabBar();
   updateChatButtonState();
+  updateChatFileBadge();
 
   // Mark active file in sidebar
   $$('.file-item').forEach(el => {
@@ -888,22 +496,246 @@ function renderTabBar() {
   if (!bar) return;
   $$('.tab', bar).forEach(el => el.remove());
   const newBtn = $('#tab-new-btn');
+  if (newBtn) {
+    newBtn.classList.toggle('hidden', tabs.length === 0);
+  }
+  let dragStartOrder = null;
+  let dragDropped = false;
+  const DRAG_EDGE_SCROLL_ZONE = 28;
+  const DRAG_EDGE_SCROLL_INTERVAL_MS = 220;
+  let dragEdgeScrollDir = 0;
+  let dragEdgeScrollTimer = 0;
+  const stopDragEdgeAutoScroll = () => {
+    dragEdgeScrollDir = 0;
+    if (dragEdgeScrollTimer) {
+      clearInterval(dragEdgeScrollTimer);
+      dragEdgeScrollTimer = 0;
+    }
+  };
+  const startDragEdgeAutoScroll = (dir) => {
+    stopDragEdgeAutoScroll();
+    dragEdgeScrollDir = dir;
+    // Match the scroll-button behavior: larger smooth jumps.
+    scrollTabBarByDirection(dir);
+    dragEdgeScrollTimer = setInterval(() => {
+      scrollTabBarByDirection(dir);
+    }, DRAG_EDGE_SCROLL_INTERVAL_MS);
+  };
+  const updateDragEdgeAutoScroll = (e) => {
+    const rect = bar.getBoundingClientRect();
+    let dir = 0;
+    if (e.clientX <= rect.left + DRAG_EDGE_SCROLL_ZONE) dir = -1;
+    else if (e.clientX >= rect.right - DRAG_EDGE_SCROLL_ZONE) dir = 1;
+    if (dir === dragEdgeScrollDir) return;
+    if (!dir) {
+      stopDragEdgeAutoScroll();
+      return;
+    }
+    startDragEdgeAutoScroll(dir);
+  };
+  const commitTabOrderFromDom = () => {
+    const orderedIds = $$('.tab', bar).map(t => t.dataset.tabId);
+    if (orderedIds.length === 0) return;
+    const pos = new Map(orderedIds.map((id, i) => [id, i]));
+    tabs.sort((a, b) => (pos.get(a.id) ?? 0) - (pos.get(b.id) ?? 0));
+  };
+
+  const labelsByTabId = new Map();
+  const groups = new Map();
+  tabs.forEach(tab => {
+    const name = tab?.name || '';
+    if (!groups.has(name)) groups.set(name, []);
+    groups.get(name).push(tab);
+  });
+
+  const goodLabels = new Set();
+
+  // Keep non-duplicate names unchanged and reserve them first.
+  groups.forEach((group, name) => {
+    if (group.length === 1) {
+      labelsByTabId.set(group[0].id, name);
+      goodLabels.add(name);
+    }
+  });
+
+  function getAncestors(filePath) {
+    if (!filePath) return [];
+    const parts = filePath.split(/[/\\]+/).filter(Boolean);
+    const dirs = parts.slice(0, -1);
+    return dirs.reverse(); // nearest parent first
+  }
+
+  groups.forEach((group, name) => {
+    if (group.length <= 1) return;
+
+    group.forEach((tab, idx) => {
+      const ancestors = getAncestors(tab.path);
+      const parent = ancestors[0] || '';
+      let label = parent ? `${parent}/${name}` : name;
+
+      // First try parent-prefix for everyone.
+      if (goodLabels.has(label)) {
+        // From second colliding tab onward, progressively use {ancestor}/../{filename}
+        if (idx > 0) {
+          let found = false;
+          for (let i = 1; i < ancestors.length; i++) {
+            const candidate = `${ancestors[i]}/../${name}`;
+            if (!goodLabels.has(candidate)) {
+              label = candidate;
+              found = true;
+              break;
+            }
+          }
+          if (!found) {
+            // Last-resort fallback when all ancestors still collide.
+            let n = 2;
+            let candidate = `${label} (${n})`;
+            while (goodLabels.has(candidate)) {
+              n += 1;
+              candidate = `${label} (${n})`;
+            }
+            label = candidate;
+          }
+        } else {
+          // Extremely rare collision with pre-existing good labels.
+          let n = 2;
+          let candidate = `${label} (${n})`;
+          while (goodLabels.has(candidate)) {
+            n += 1;
+            candidate = `${label} (${n})`;
+          }
+          label = candidate;
+        }
+      }
+
+      labelsByTabId.set(tab.id, label);
+      goodLabels.add(label);
+    });
+  });
 
   tabs.forEach(tab => {
     const el = document.createElement('div');
     el.className = 'tab' + (tab.id === activeTabId ? ' active' : '');
     el.dataset.tabId = tab.id;
+    el.draggable = true;
     if (tab.path) el.title = tab.path;
     el.innerHTML =
-      `<span class="tab-name">${escapeHtml(tab.name)}</span>` +
-      `<span class="tab-dot${tab.unsaved ? '' : ' hidden'}">●</span>` +
-      `<button class="tab-close" title="${t('tt.closeTab')}">×</button>`;
+      `<span class="tab-name">${escapeHtml(labelsByTabId.get(tab.id) || tab.name || '')}</span>` +
+      `<span class="tab-dot${tab.unsaved ? '' : ' hidden'}">&bull;</span>` +
+      `<button class="tab-close" title="${t('tt.closeTab')}">&times;</button>`;
     el.addEventListener('click', e => {
       if (e.target.classList.contains('tab-close')) { closeTab(tab.id); return; }
       activateTab(tab.id);
     });
+    el.addEventListener('dragstart', e => {
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', tab.id);
+      draggedTabId = tab.id;
+      dragStartOrder = tabs.map(t => t.id);
+      dragDropped = false;
+      el.classList.add('dragging');
+    });
+    el.addEventListener('dragend', () => {
+      el.classList.remove('dragging');
+      draggedTabId = null;
+      stopDragEdgeAutoScroll();
+      $$('.tab.drop-before, .tab.drop-after', bar).forEach(t => t.classList.remove('drop-before', 'drop-after'));
+      if (!dragDropped && Array.isArray(dragStartOrder)) {
+        const orderMap = new Map(dragStartOrder.map((id, i) => [id, i]));
+        tabs.sort((a, b) => (orderMap.get(a.id) ?? 0) - (orderMap.get(b.id) ?? 0));
+        renderTabBar();
+      }
+    });
+    el.addEventListener('dragover', e => {
+      e.preventDefault();
+      updateDragEdgeAutoScroll(e);
+      const draggingId = draggedTabId || e.dataTransfer.getData('text/plain');
+      if (!draggingId || draggingId === tab.id) return;
+      const rect = el.getBoundingClientRect();
+      const before = e.clientX < rect.left + rect.width / 2;
+      el.classList.toggle('drop-before', before);
+      el.classList.toggle('drop-after', !before);
+      const draggingEl = $(`.tab[data-tab-id="${draggingId}"]`, bar);
+      if (!draggingEl) return;
+      const ref = before ? el : el.nextElementSibling;
+      if (ref !== draggingEl && draggingEl.nextElementSibling !== ref) {
+        bar.insertBefore(draggingEl, ref);
+      }
+    });
+    el.addEventListener('dragleave', () => {
+      el.classList.remove('drop-before', 'drop-after');
+    });
+    el.addEventListener('drop', e => {
+      e.preventDefault();
+      stopDragEdgeAutoScroll();
+      const draggingId = draggedTabId || e.dataTransfer.getData('text/plain');
+      el.classList.remove('drop-before', 'drop-after');
+      if (!draggingId || draggingId === tab.id) return;
+      dragDropped = true;
+      commitTabOrderFromDom();
+      renderTabBar();
+    });
     bar.insertBefore(el, newBtn);
   });
+
+  // Drop on empty area of tab bar to move tab to the end with live preview.
+  bar.ondragover = (e) => {
+    if (e.target.closest('#tab-new-btn')) return;
+    e.preventDefault();
+    updateDragEdgeAutoScroll(e);
+    const draggingId = draggedTabId || e.dataTransfer.getData('text/plain');
+    if (!draggingId) return;
+    const draggingEl = $(`.tab[data-tab-id="${draggingId}"]`, bar);
+    if (!draggingEl) return;
+    if (e.target.closest('.tab')) return;
+    bar.insertBefore(draggingEl, newBtn);
+  };
+  bar.ondrop = (e) => {
+    if (e.target.closest('#tab-new-btn')) return;
+    e.preventDefault();
+    stopDragEdgeAutoScroll();
+    const draggingId = draggedTabId || e.dataTransfer.getData('text/plain');
+    if (!draggingId) return;
+    dragDropped = true;
+    commitTabOrderFromDom();
+    renderTabBar();
+  };
+  bar.ondragleave = (e) => {
+    if (e.relatedTarget && bar.contains(e.relatedTarget)) return;
+    stopDragEdgeAutoScroll();
+  };
+
+  const activeEl = $('.tab.active', bar);
+  if (activeEl && typeof activeEl.scrollIntoView === 'function') {
+    activeEl.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'auto' });
+  }
+  if (tabBarScrollToEndPending) {
+    requestAnimationFrame(() => {
+      bar.scrollLeft = bar.scrollWidth;
+      updateTabScrollButtons();
+    });
+    tabBarScrollToEndPending = false;
+  }
+  updateTabScrollButtons();
+}
+
+function updateTabScrollButtons() {
+  const bar = dom.tabBar;
+  if (!bar || !dom.tabScrollLeft || !dom.tabScrollRight) return;
+  const maxScroll = Math.max(0, bar.scrollWidth - bar.clientWidth);
+  const showLeft = bar.scrollLeft > 2;
+  const showRight = bar.scrollLeft < maxScroll - 2;
+  dom.tabScrollLeft.classList.toggle('hidden', !showLeft);
+  dom.tabScrollRight.classList.toggle('hidden', !showRight);
+}
+
+function getTabBarScrollStep() {
+  return Math.max(120, Math.round((dom.tabBar?.clientWidth || 360) * 0.55));
+}
+
+function scrollTabBarByDirection(dir) {
+  if (!dir) return;
+  dom.tabBar?.scrollBy({ left: dir * getTabBarScrollStep(), behavior: 'smooth' });
 }
 
 async function closeTab(tabId) {
@@ -1069,7 +901,7 @@ function findEnclosingFence(text, pos) {
     if (/^```/.test(line)) fences.push({ start: off, end: off + line.length });
     off += line.length + 1;
   }
-  // Fences pair up: [0]=open,[1]=close,[2]=open,[3]=close …
+  // Fences pair up: [0]=open,[1]=close,[2]=open,[3]=close Ã¢â‚¬Â¦
   for (let i = 0; i + 1 < fences.length; i += 2) {
     const open = fences[i], close = fences[i + 1];
     if (pos >= open.start && pos <= close.end) return { openStart: open.start, openEnd: open.end, closeStart: close.start, closeEnd: close.end };
@@ -1085,7 +917,7 @@ function getActiveFormats() {
   const { line } = getLineInfo(text, pos);
   const active = new Set();
 
-  // Fenced code block takes priority — don't check inline formats inside one
+  // Fenced code block takes priority Ã¢â‚¬â€ don't check inline formats inside one
   if (isCursorInFencedCodeBlock(text, pos)) {
     active.add('codeblock');
     return active;
@@ -1193,7 +1025,7 @@ function applyFormat(type) {
       return;
     }
     case 'codeblock': {
-      // Toggle off: cursor is inside a fenced block — remove the fences.
+      // Toggle off: cursor is inside a fenced block Ã¢â‚¬â€ remove the fences.
       const fence = findEnclosingFence(text, pos);
       if (fence) {
         // Content sits between the end of the opening fence line and the
@@ -1265,7 +1097,7 @@ function setupEditorKeyboard() {
     if (mod && e.key === 'k') { e.preventDefault(); applyFormat('link'); return; }
     if (mod && e.key === '`') { e.preventDefault(); applyFormat('code'); return; }
 
-    // Tab → two spaces
+    // Tab Ã¢â€ â€™ two spaces
     if (e.key === 'Tab') {
       e.preventDefault();
       const ta = dom.editorTextarea;
@@ -1289,7 +1121,7 @@ function setupEditorKeyboard() {
       if (ulMatch) {
         e.preventDefault();
         if (!ulMatch[2]) {
-          // Empty item → exit list: replace "- " on this line with a plain newline
+          // Empty item Ã¢â€ â€™ exit list: replace "- " on this line with a plain newline
           const lineStart = pos - currentLine.length;
           ta.setSelectionRange(lineStart, pos);
           document.execCommand('insertText', false, '\n');
@@ -1460,7 +1292,7 @@ function observeHeadings(headings) {
   function updateActive() {
     if (_tocScrolling || !offsets.length) return;
     const st        = dom.scrollContainer.scrollTop;
-    const threshold = 80; // px — heading activates when within 80px of container top
+    const threshold = 80; // px Ã¢â‚¬â€ heading activates when within 80px of container top
     let activeIdx   = 0;
     for (let i = 0; i < offsets.length; i++) {
       if (offsets[i] <= st + threshold) activeIdx = i;
@@ -1577,6 +1409,7 @@ async function openFolder(folderPath) {
   loadedFolderPath = folderPath;
   loadedFolderName = folderPath.split(/[/\\]/).pop();
   dom.folderName.textContent = loadedFolderName;
+  updateRefreshFolderButtonState();
 
   if (!tree || tree.length === 0) {
     dom.folderEmpty.classList.remove('hidden');
@@ -1585,6 +1418,15 @@ async function openFolder(folderPath) {
   dom.folderEmpty.classList.add('hidden');
   dom.folderList.appendChild(buildTree(tree, 0));
   switchTab('folder');
+}
+
+async function refreshFolderTree() {
+  if (!loadedFolderPath) return;
+  const expanded = new Set([...$$('.tree-dir.open', dom.folderList)].map(el => el.dataset.path));
+  await openFolder(loadedFolderPath);
+  $$('.tree-dir', dom.folderList).forEach(el => {
+    if (expanded.has(el.dataset.path)) el.classList.add('open');
+  });
 }
 
 function buildTree(nodes, depth) {
@@ -1912,14 +1754,14 @@ function htmlToMd(node) {
     hideMenu();
   };
 
-  // "Find in Document" — opens find bar pre-filled with the selection
+  // "Find in Document" Ã¢â‚¬â€ opens find bar pre-filled with the selection
   btnFind.onclick = () => {
     const text = window.getSelection()?.toString()?.trim() || '';
     hideMenu();
     openFind(text || undefined);
   };
 
-  // "Find in Editor" — switches to split view and selects the text in the textarea
+  // "Find in Editor" Ã¢â‚¬â€ switches to split view and selects the text in the textarea
   btnFindEditor.onclick = () => {
     const text = window.getSelection()?.toString() || '';
     hideMenu();
@@ -2161,7 +2003,7 @@ function findNav(dir) {
 function hasOpenMarkdownDocument() {
   const activeTab = tabs.find(t => t.id === activeTabId);
   if (!activeTab || !activeTab.path) return false;
-  return /\.(md|markdown|mdown|mkd|mdx)$/i.test(activeTab.path);
+  return /\.(md|markdown|mdown|mkd|mdx|txt)$/i.test(activeTab.path);
 }
 
 function updateChatButtonState() {
@@ -2173,6 +2015,113 @@ function updateChatButtonState() {
 function getChatDocKey() {
   const activeTab = tabs.find(t => t.id === activeTabId);
   return activeTab?.path || '__no_file__';
+}
+
+function getPrimaryChatContextFile() {
+  const activeTab = tabs.find(t => t.id === activeTabId);
+  if (!activeTab || !activeTab.path) return null;
+  return { path: activeTab.path, name: activeTab.name || activeTab.path.split(/[/\\]/).pop() };
+}
+
+function getChatContextFiles(docKey = getChatDocKey()) {
+  const list = chatContextFilesByDoc[docKey];
+  return Array.isArray(list) ? list : [];
+}
+
+function setChatContextFiles(list, docKey = getChatDocKey()) {
+  const uniq = [];
+  const seen = new Set();
+  (list || []).forEach(f => {
+    if (!f?.path || seen.has(f.path)) return;
+    seen.add(f.path);
+    uniq.push({ path: f.path, name: f.name || f.path.split(/[/\\]/).pop() });
+  });
+  chatContextFilesByDoc[docKey] = uniq;
+  renderChatContextFiles();
+}
+
+async function addChatContextFile(filePath, fileName, docKey = getChatDocKey()) {
+  if (!filePath) return false;
+  const primary = getPrimaryChatContextFile();
+  if (primary && primary.path === filePath) return false;
+  const list = getChatContextFiles(docKey);
+  if (list.some(f => f.path === filePath)) return false;
+  setChatContextFiles([...list, { path: filePath, name: fileName || filePath.split(/[/\\]/).pop() }], docKey);
+  return true;
+}
+
+function removeChatContextFile(filePath, docKey = getChatDocKey()) {
+  const list = getChatContextFiles(docKey);
+  setChatContextFiles(list.filter(f => f.path !== filePath), docKey);
+}
+
+function closeChatPathSuggest() {
+  if (!dom.chatPathSuggest) return;
+  dom.chatPathSuggest.classList.add('hidden');
+  if (dom.chatPathSuggestList) dom.chatPathSuggestList.innerHTML = '';
+  chatPathSuggestIndex = -1;
+}
+
+function getChatPathSuggestButtons() {
+  if (!dom.chatPathSuggestList) return [];
+  return $$('.chat-path-item', dom.chatPathSuggestList);
+}
+
+function setChatPathSuggestActive(index) {
+  const buttons = getChatPathSuggestButtons();
+  if (!buttons.length) {
+    chatPathSuggestIndex = -1;
+    return;
+  }
+  const next = Math.max(0, Math.min(buttons.length - 1, index));
+  chatPathSuggestIndex = next;
+  buttons.forEach((btn, i) => btn.classList.toggle('active', i === next));
+  buttons[next].scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+}
+
+function moveChatPathSuggestActive(delta) {
+  const buttons = getChatPathSuggestButtons();
+  if (!buttons.length) return;
+  if (chatPathSuggestIndex < 0 || chatPathSuggestIndex >= buttons.length) {
+    setChatPathSuggestActive(0);
+    return;
+  }
+  const next = (chatPathSuggestIndex + delta + buttons.length) % buttons.length;
+  setChatPathSuggestActive(next);
+}
+
+function triggerChatPathSuggestActive() {
+  const buttons = getChatPathSuggestButtons();
+  if (!buttons.length) return false;
+  if (chatPathSuggestIndex < 0 || chatPathSuggestIndex >= buttons.length) {
+    setChatPathSuggestActive(0);
+  }
+  buttons[chatPathSuggestIndex]?.click();
+  return true;
+}
+
+function renderChatContextFiles() {
+  if (!dom.chatContextList) return;
+  const primary = getPrimaryChatContextFile();
+  const extras = getChatContextFiles();
+  const chips = [];
+  if (primary) {
+    chips.push(
+      `<span class="chat-context-chip chat-context-primary" title="${escapeHtml(primary.path)}"><span class="label">${escapeHtml(primary.name)}</span></span>`
+    );
+  }
+  extras.forEach(f => {
+    chips.push(
+      `<span class="chat-context-chip" title="${escapeHtml(f.path)}"><span class="label">${escapeHtml(f.name)}</span><button class="chat-context-remove" data-path="${escapeHtml(f.path)}" title="${escapeHtml(t('tt.delete'))}" aria-label="${escapeHtml(t('tt.delete'))}">&times;</button></span>`
+    );
+  });
+  dom.chatContextList.innerHTML = chips.join('');
+  dom.chatContextList.querySelectorAll('.chat-context-remove').forEach(btn => {
+    btn.onclick = e => {
+      e.stopPropagation();
+      removeChatContextFile(btn.dataset.path);
+    };
+  });
 }
 
 function ensureChatHistories() {
@@ -2197,6 +2146,7 @@ function purgeDocConversationHistory(docKey, opts = {}) {
   if (!docKey) return;
   setDocConversations([], docKey);
   delete activeConversationByDoc[docKey];
+  delete chatContextFilesByDoc[docKey];
 
   // If this is the currently open doc in chat, reset visible state too.
   if (opts.clearVisible && docKey === getChatDocKey()) {
@@ -2212,7 +2162,7 @@ function getConversationTitle(messages) {
   const firstUser = messages.find(m => m.role === 'user' && (m.content || '').trim());
   if (!firstUser) return t('tt.chatClear');
   const oneLine = firstUser.content.replace(/\s+/g, ' ').trim();
-  return oneLine.length > 56 ? oneLine.slice(0, 56) + '…' : oneLine;
+  return oneLine.length > 56 ? oneLine.slice(0, 56) + 'Ã¢â‚¬Â¦' : oneLine;
 }
 
 function getChatPersistableMessages() {
@@ -2239,6 +2189,7 @@ function persistCurrentConversation() {
     title: getConversationTitle(messages),
     updatedAt: now,
     messages,
+    contextFiles: getChatContextFiles(docKey),
   };
 
   const idx = list.findIndex(c => c.id === conversationId);
@@ -2255,6 +2206,7 @@ function loadConversation(conversationId, docKey = getChatDocKey()) {
   if (!convo) return false;
   activeConversationByDoc[docKey] = convo.id;
   chatMessages = Array.isArray(convo.messages) ? convo.messages.map(m => ({ role: m.role, content: m.content })) : [];
+  setChatContextFiles(Array.isArray(convo.contextFiles) ? convo.contextFiles : [], docKey);
   chatStreaming = false;
   chatStreamContent = '';
   dom.chatSend.disabled = false;
@@ -2282,6 +2234,7 @@ function loadLatestConversation(docKey = getChatDocKey()) {
   if (list.length === 0) {
     activeConversationByDoc[docKey] = null;
     chatMessages = [];
+    setChatContextFiles([], docKey);
     chatStreaming = false;
     chatStreamContent = '';
     renderChatMessages();
@@ -2368,6 +2321,7 @@ function openChat() {
   dom.body.classList.add('chat-open');
   loadLatestConversation();
   updateChatFileBadge();
+  renderChatContextFiles();
   requestAnimationFrame(() => {
     dom.chatMessages.scrollTop = dom.chatMessages.scrollHeight;
   });
@@ -2378,11 +2332,13 @@ function closeChat() {
   dom.chatOverlay.classList.add('hidden');
   dom.body.classList.remove('chat-open');
   closeChatHistoryMenu();
+  closeChatPathSuggest();
 }
 
 function clearChat() {
   activeConversationByDoc[getChatDocKey()] = null;
   chatMessages = [];
+  setChatContextFiles([]);
   chatStreaming = false;
   chatStreamContent = '';
   renderChatMessages();
@@ -2392,13 +2348,7 @@ function clearChat() {
 }
 
 function updateChatFileBadge() {
-  const activeTab = tabs.find(t => t.id === activeTabId);
-  if (activeTab && activeTab.path) {
-    dom.chatFileName.textContent = activeTab.name;
-    dom.chatFileBadge.classList.remove('hidden');
-  } else {
-    dom.chatFileBadge.classList.add('hidden');
-  }
+  renderChatContextFiles();
 }
 
 function renderChatMessages() {
@@ -2671,7 +2621,33 @@ function queueAssistantMarkdownRender(text) {
     .finally(() => chatMarkdownInFlight.delete(key));
 }
 
-function submitChatPrompt(text, opts = {}) {
+async function buildChatContextPayload() {
+  const activeTab = tabs.find(t => t.id === activeTabId);
+  const files = [];
+  if (activeTab && activeTab.path) {
+    files.push({
+      path: activeTab.path,
+      name: activeTab.name,
+      content: activeTab.content || dom.editorTextarea.value || '',
+      primary: true,
+    });
+  }
+  const extras = getChatContextFiles().filter(f => !activeTab || f.path !== activeTab.path);
+  for (const f of extras) {
+    try {
+      const res = await window.mandy.readFile(f.path);
+      if (!res?.error && typeof res.content === 'string') {
+        files.push({ path: f.path, name: f.name, content: res.content, primary: false });
+      }
+    } catch {}
+  }
+  return {
+    primaryPath: files[0]?.path || '',
+    files,
+  };
+}
+
+async function submitChatPrompt(text, opts = {}) {
   const clearInput = opts.clearInput !== false;
   const prompt = (text || '').trim();
   if (!prompt || chatStreaming) return false;
@@ -2697,25 +2673,89 @@ function submitChatPrompt(text, opts = {}) {
   renderChatMessages();
   persistCurrentConversation();
 
-  // Build file context from active tab
-  const activeTab = tabs.find(t => t.id === activeTabId);
-  const fileContext = (activeTab && activeTab.path)
-    ? { name: activeTab.name, content: activeTab.content || dom.editorTextarea.value }
-    : null;
-
   // Send only user/assistant messages (not error)
   const apiMessages = chatMessages
     .filter(m => m.role === 'user' || m.role === 'assistant')
     .map(m => ({ role: m.role, content: m.content }));
 
-  window.mandy.sendChat(apiMessages, fileContext);
+  const contextPayload = await buildChatContextPayload();
+  window.mandy.sendChat(apiMessages, contextPayload);
   return true;
 }
 
-function sendChatMessage() {
+async function sendChatMessage() {
   const text = dom.chatInput.value.trim();
   if (!text || chatStreaming) return;
-  submitChatPrompt(text, { clearInput: true });
+  await submitChatPrompt(text, { clearInput: true });
+}
+
+function getChatPathQuery() {
+  const raw = dom.chatInput?.value || '';
+  const m = raw.match(/^\s*(\/[^\s]*)$/);
+  return m ? m[1] : '';
+}
+
+async function refreshChatPathSuggestions() {
+  const query = getChatPathQuery();
+  if (!query) {
+    closeChatPathSuggest();
+    return;
+  }
+  const primary = getPrimaryChatContextFile();
+  if (!primary?.path) {
+    closeChatPathSuggest();
+    return;
+  }
+  const reqId = ++chatSuggestReqId;
+  let items = [];
+  try {
+    items = await window.mandy.suggestChatContextFiles(query, primary.path);
+  } catch {}
+  if (reqId !== chatSuggestReqId) return;
+  if (!dom.chatPathSuggest || !dom.chatPathSuggestList) return;
+
+  dom.chatPathSuggestList.innerHTML = '';
+  chatPathSuggestIndex = -1;
+  if (!Array.isArray(items) || items.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'chat-path-empty';
+    empty.textContent = t('chat.pathNoMatch');
+    dom.chatPathSuggestList.appendChild(empty);
+    dom.chatPathSuggest.classList.remove('hidden');
+    return;
+  }
+  items.forEach(item => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'chat-path-item';
+    btn.textContent = item.relPath || item.name || item.path;
+    btn.onclick = async () => {
+      if (item.type === 'dir') {
+        dom.chatInput.value = item.relPath || '/';
+        dom.chatInput.style.height = 'auto';
+        dom.chatInput.style.height = Math.min(dom.chatInput.scrollHeight, 120) + 'px';
+        dom.chatInput.focus();
+        refreshChatPathSuggestions();
+      } else {
+        const added = await addChatContextFile(item.path, item.name);
+        if (added) {
+          dom.chatInput.value = (dom.chatInput.value || '').replace(/^\s*\/[^\s]*\s*/, '');
+          dom.chatInput.style.height = 'auto';
+          dom.chatInput.style.height = Math.min(dom.chatInput.scrollHeight, 120) + 'px';
+        }
+        closeChatPathSuggest();
+        dom.chatInput.focus();
+      }
+    };
+    btn.addEventListener('mouseenter', () => {
+      const buttons = getChatPathSuggestButtons();
+      const idx = buttons.indexOf(btn);
+      if (idx >= 0) setChatPathSuggestActive(idx);
+    });
+    dom.chatPathSuggestList.appendChild(btn);
+  });
+  setChatPathSuggestActive(0);
+  dom.chatPathSuggest.classList.remove('hidden');
 }
 
 function prefillChatInput(text) {
@@ -3172,8 +3212,18 @@ async function init() {
   $('#btn-find').onclick = () => openFind();
   $('#btn-settings').onclick = openSettings;
   $('#btn-open-file').onclick = () => window.mandy.openFileDialog();
+  $('#btn-refresh-folder').onclick = () => refreshFolderTree();
   $('#btn-open-folder').onclick = () => window.mandy.openFolderDialog();
+  updateRefreshFolderButtonState();
   $('#tab-new-btn').onclick = () => newWelcomeTab();
+  dom.tabBar?.addEventListener('scroll', updateTabScrollButtons, { passive: true });
+  dom.tabScrollLeft?.addEventListener('click', () => {
+    scrollTabBarByDirection(-1);
+  });
+  dom.tabScrollRight?.addEventListener('click', () => {
+    scrollTabBarByDirection(1);
+  });
+  window.addEventListener('resize', updateTabScrollButtons);
 
   // Welcome buttons
   $('#welcome-open').onclick = () => window.mandy.openFileDialog();
@@ -3202,7 +3252,7 @@ async function init() {
   };
   dom.settingsOverlay.onclick = e => { if (e.target === dom.settingsOverlay) closeSettings(); };
 
-  // Settings — live apply on every change
+  // Settings Ã¢â‚¬â€ live apply on every change
   $('#cfg-font-size').oninput = function() {
     const v = parseInt(this.value);
     $('#val-font-size').textContent = v + 'px';
@@ -3272,7 +3322,7 @@ async function init() {
     autosave();
   };
 
-  // AI settings — save on change
+  // AI settings Ã¢â‚¬â€ save on change
   setupAiModelPicker();
   $('#cfg-ai-api-url').onchange = autosave;
   $('#cfg-ai-api-key').onchange = autosave;
@@ -3306,14 +3356,52 @@ async function init() {
         !dom.chatHistoryBtn.contains(e.target)) {
       closeChatHistoryMenu();
     }
+    if (!dom.chatOverlay.classList.contains('hidden') &&
+        dom.chatPathSuggest &&
+        !dom.chatPathSuggest.classList.contains('hidden') &&
+        !dom.chatPathSuggest.contains(e.target) &&
+        e.target !== dom.chatInput) {
+      closeChatPathSuggest();
+    }
   });
   dom.chatSend.onclick = sendChatMessage;
+  dom.chatContextAdd.onclick = async () => {
+    const primary = getPrimaryChatContextFile();
+    const startDir = primary?.path ? primary.path.replace(/[\\/][^\\/]+$/, '') : '';
+    const picked = await window.mandy.pickChatContextFiles(startDir);
+    if (Array.isArray(picked)) {
+      for (const p of picked) await addChatContextFile(p);
+    }
+  };
   dom.chatInput.addEventListener('keydown', e => {
+    const suggestOpen = dom.chatPathSuggest && !dom.chatPathSuggest.classList.contains('hidden');
+    if (suggestOpen && e.key === 'ArrowDown') {
+      e.preventDefault();
+      moveChatPathSuggestActive(1);
+      return;
+    }
+    if (suggestOpen && e.key === 'ArrowUp') {
+      e.preventDefault();
+      moveChatPathSuggestActive(-1);
+      return;
+    }
+    if (suggestOpen && e.key === 'Enter' && !e.shiftKey) {
+      if (triggerChatPathSuggestActive()) {
+        e.preventDefault();
+        return;
+      }
+    }
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChatMessage(); }
+    if (e.key === 'Escape') closeChatPathSuggest();
   });
   dom.chatInput.addEventListener('input', () => {
     dom.chatInput.style.height = 'auto';
     dom.chatInput.style.height = Math.min(dom.chatInput.scrollHeight, 120) + 'px';
+    refreshChatPathSuggestions();
+  });
+  dom.chatPathSuggest?.addEventListener('mousedown', e => {
+    // Keep textarea focus while clicking suggestions so nested navigation works.
+    e.preventDefault();
   });
   dom.chatMessages.addEventListener('click', e => {
     const settingsBtn = e.target.closest('.chat-error-action');
@@ -3364,7 +3452,7 @@ async function init() {
     const href = a.getAttribute('href');
     if (!href) return;
     e.preventDefault();
-    // Internal anchor (#section) → scroll the container to the target element
+    // Internal anchor (#section) Ã¢â€ â€™ scroll the container to the target element
     if (href.startsWith('#')) {
       const target = document.querySelector(href);
       if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -3453,7 +3541,7 @@ async function init() {
   // Show sidebar unless hidden
   if (cfg.showTOC === false) dom.sidebar.classList.add('hidden');
 
-  // Start with no tabs — just show the welcome screen
+  // Start with no tabs Ã¢â‚¬â€ just show the welcome screen
   dom.viewer.classList.add('hidden');
   dom.welcome.classList.remove('hidden');
   renderTabBar();

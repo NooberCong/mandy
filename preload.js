@@ -34,6 +34,8 @@ contextBridge.exposeInMainWorld('mandy', {
 
   // AI Chat
   sendChat:    (messages, fileContext) => ipcRenderer.invoke('ai-chat', messages, fileContext),
+  suggestChatContextFiles: (query, currentFilePath) => ipcRenderer.invoke('suggest-chat-context-files', query, currentFilePath),
+  pickChatContextFiles:    (startDir) => ipcRenderer.invoke('pick-chat-context-files', startDir),
   cancelChat:  () => ipcRenderer.invoke('ai-chat-cancel'),
   onChatChunk: (cb) => ipcRenderer.on('ai-chat-chunk', (_, d) => cb(d)),
   onChatDone:  (cb) => ipcRenderer.on('ai-chat-done',  () => cb()),
