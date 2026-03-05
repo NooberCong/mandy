@@ -1678,23 +1678,39 @@ select option { background: var(--bg2); }
 #chat-header-actions button:hover { background: var(--bg3); color: var(--text); }
 #chat-history-menu {
   position: absolute;
-  top: 52px;
+  top: 56px;
   right: 16px;
   width: 280px;
   max-height: 320px;
-  overflow-y: auto;
-  background: var(--bg2);
+  overflow: hidden;
+  background: var(--bg);
   border: 1px solid var(--border2);
   border-radius: var(--radius-sm);
   box-shadow: 0 10px 24px var(--shadow);
   padding: 6px;
-  z-index: 30;
+  z-index: 50;
+  opacity: 1;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  isolation: isolate;
 }
 #chat-history-menu.hidden { display: none; }
+#chat-history-menu::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--bg);
+  z-index: 0;
+}
 #chat-history-list {
+  position: relative;
+  z-index: 1;
   display: flex;
   flex-direction: column;
   gap: 4px;
+  max-height: calc(320px - 12px);
+  overflow-y: auto;
+  background: var(--bg);
 }
 .chat-history-item {
   display: flex;
@@ -1741,6 +1757,7 @@ select option { background: var(--bg2); }
   padding: 10px;
   font-size: calc(var(--font-size) - 6px);
   color: var(--text3);
+  background: var(--bg);
 }
 .chat-history-remove {
   opacity: 0;
