@@ -48,15 +48,68 @@ Supported languages:
 - Vietnamese (`vn`)
 
 ## Screenshots
-Add your screenshots under `docs/screenshots/` and keep/update refs below.
+| Welcome screen | Dark theme |
+|---|---|
+| ![Welcome](docs/screenshots/welcome.png) | ![Dark](docs/screenshots/dark-preview.png) |
 
-- Main window: `docs/screenshots/dark-preview.png`
-- Welcome: `docs/screenshots/welcome.png`
-- Split view: `docs/screenshots/split-view.png`
-- Settings: `docs/screenshots/settings.png`
-- Folder browser: `docs/screenshots/folder-browser.png`
-- AI Chat panel: `docs/screenshots/chat-panel.png`
-- AI Chat history: `docs/screenshots/chat-history.png`
+| Split view (editor + live preview) | Settings |
+|---|---|
+| ![Split](docs/screenshots/split-view.png) | ![Settings](docs/screenshots/settings.png) |
+
+| Folder browser | AI Chat panel |
+|---|---|
+| ![Folder](docs/screenshots/folder-browser.png) | ![AI Chat panel](docs/screenshots/chat-panel.png) |
+
+| AI Chat history |
+|---|
+| ![AI Chat history](docs/screenshots/chat-history.png) |
+
+## Keyboard Shortcuts
+### File and Tabs
+- `Ctrl+O`: Open file
+- `Ctrl+Shift+O`: Open folder
+- `Ctrl+N`: New file
+- `Ctrl+T`: New tab
+- `Ctrl+W`: Close current tab
+- `Ctrl+Tab`: Next tab
+- `Ctrl+Shift+Tab`: Previous tab
+- `Ctrl+S`: Save
+- `Ctrl+P`: Print
+
+### View and App
+- `Ctrl+E`: Toggle Edit/Preview
+- `Ctrl+Shift+E`: Split view
+- `Ctrl+Shift+P`: Preview mode
+- `Ctrl+B`: Toggle sidebar
+- `Ctrl+Shift+F`: Toggle focus mode
+- `Ctrl+Shift+A`: Open AI Chat
+- `Ctrl+,`: Open Settings
+- `Esc`: Close overlays/find/chat or clear selection
+
+### Search and Navigation
+- `Ctrl+F`: Find in document/editor selection
+- `Enter` (in Find): Next match
+- `Shift+Enter` (in Find): Previous match
+- `F3`: Next match
+- `Shift+F3`: Previous match
+
+### Editor Formatting
+- `Ctrl+B`: Bold
+- `Ctrl+I`: Italic
+- `Ctrl+K`: Insert link
+- ``Ctrl+` ``: Inline code
+- `Tab`: Indent (2 spaces)
+
+### Zoom
+- `Ctrl+=`: Zoom in
+- `Ctrl+-`: Zoom out
+- `Ctrl+0`: Reset zoom
+
+### Chat Input
+- `Enter`: Send message
+- `Shift+Enter`: New line
+- `ArrowUp/ArrowDown`: Navigate file path suggestions
+- `Enter` (while suggestion list is open): Select highlighted suggestion
 
 ## Development
 Prerequisites:
