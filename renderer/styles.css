@@ -1697,12 +1697,18 @@ select option { background: var(--bg2); }
   gap: 4px;
 }
 .chat-history-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   width: 100%;
+  min-width: 0;
   text-align: left;
-  padding: 8px 9px;
-  border-radius: 6px;
+  padding: 7px 8px;
+  border-radius: var(--radius-sm);
   color: var(--text2);
   transition: background var(--transition), color var(--transition);
+  cursor: pointer;
+  position: relative;
 }
 .chat-history-item:hover {
   background: var(--bg3);
@@ -1710,7 +1716,12 @@ select option { background: var(--bg2); }
 }
 .chat-history-item.active {
   background: var(--accent-dim);
-  color: var(--accent);
+}
+.chat-history-item.active .chat-history-title { color: var(--accent); }
+.chat-history-main {
+  min-width: 0;
+  flex: 1;
+  padding-right: 22px;
 }
 .chat-history-title {
   display: block;
@@ -1730,6 +1741,29 @@ select option { background: var(--bg2); }
   padding: 10px;
   font-size: calc(var(--font-size) - 6px);
   color: var(--text3);
+}
+.chat-history-remove {
+  opacity: 0;
+  width: 18px;
+  height: 18px;
+  border-radius: 3px;
+  color: var(--text3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  transition: opacity var(--transition), background var(--transition), color var(--transition);
+}
+.chat-history-item:hover .chat-history-remove,
+.chat-history-item:focus-within .chat-history-remove {
+  opacity: 1;
+}
+.chat-history-remove:hover {
+  background: var(--bg4);
+  color: var(--danger);
 }
 
 /* Chat messages area */

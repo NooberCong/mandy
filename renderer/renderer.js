@@ -1497,6 +1497,7 @@ function createFileItem(r, onClick) {
     e.stopPropagation();
     const p = e.currentTarget.dataset.path;
     const updated = await window.mandy.removeRecent(p);
+    purgeDocConversationHistory(p, { clearVisible: true });
     updateRecentsList(updated);
   });
 
@@ -1703,7 +1704,9 @@ function buildFileNode(node, depth) {
     const tab = tabs.find(t => t.path === node.path);
     if (tab) await closeTab(tab.id);
     // Remove from recents
-    window.mandy.removeRecent(node.path);
+    const updatedRecents = await window.mandy.removeRecent(node.path);
+    purgeDocConversationHistory(node.path, { clearVisible: true });
+    updateRecentsList(updatedRecents);
     // Refresh tree preserving expanded state
     const expanded = new Set([...$$('.tree-dir.open', dom.folderList)].map(el => el.dataset.path));
     await openFolder(loadedFolderPath);
@@ -2134,8 +2137,25 @@ function getDocConversations(docKey = getChatDocKey()) {
 
 function setDocConversations(list, docKey = getChatDocKey()) {
   ensureChatHistories();
-  cfg.chatHistories[docKey] = list.slice(0, 5);
+  const next = list.slice(0, 5);
+  if (next.length === 0) delete cfg.chatHistories[docKey];
+  else cfg.chatHistories[docKey] = next;
   window.mandy.saveConfig(cfg);
+}
+
+function purgeDocConversationHistory(docKey, opts = {}) {
+  if (!docKey) return;
+  setDocConversations([], docKey);
+  delete activeConversationByDoc[docKey];
+
+  // If this is the currently open doc in chat, reset visible state too.
+  if (opts.clearVisible && docKey === getChatDocKey()) {
+    chatMessages = [];
+    chatStreaming = false;
+    chatStreamContent = '';
+    renderChatMessages();
+    renderChatHistoryList();
+  }
 }
 
 function getConversationTitle(messages) {
@@ -2193,6 +2213,20 @@ function loadConversation(conversationId, docKey = getChatDocKey()) {
   return true;
 }
 
+function removeConversation(conversationId, docKey = getChatDocKey()) {
+  const list = getDocConversations(docKey);
+  const next = list.filter(c => c.id !== conversationId);
+  if (next.length === list.length) return false;
+
+  setDocConversations(next, docKey);
+  if (activeConversationByDoc[docKey] === conversationId) {
+    activeConversationByDoc[docKey] = null;
+    if (docKey === getChatDocKey()) loadLatestConversation(docKey);
+  }
+  renderChatHistoryList();
+  return true;
+}
+
 function loadLatestConversation(docKey = getChatDocKey()) {
   const list = getDocConversations(docKey);
   if (list.length === 0) {
@@ -2238,17 +2272,38 @@ function renderChatHistoryList() {
     return;
   }
   list.forEach(c => {
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'chat-history-item';
-    if (c.id === activeId) btn.classList.add('active');
+    const item = document.createElement('div');
+    item.className = 'chat-history-item';
+    item.tabIndex = 0;
+    item.setAttribute('role', 'button');
+    if (c.id === activeId) item.classList.add('active');
     const ts = c.updatedAt ? relativeTime(c.updatedAt) : '';
-    btn.innerHTML = `<span class="chat-history-title">${escapeHtml(c.title || t('tt.chatClear'))}</span><span class="chat-history-meta">${escapeHtml(ts)}</span>`;
-    btn.onclick = () => {
+    item.innerHTML = `<div class="chat-history-main"><span class="chat-history-title">${escapeHtml(c.title || t('tt.chatClear'))}</span><span class="chat-history-meta">${escapeHtml(ts)}</span></div>`;
+    item.onclick = () => {
       loadConversation(c.id, docKey);
       closeChatHistoryMenu();
     };
-    dom.chatHistoryList.appendChild(btn);
+    item.onkeydown = (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        loadConversation(c.id, docKey);
+        closeChatHistoryMenu();
+      }
+    };
+
+    const removeBtn = document.createElement('button');
+    removeBtn.type = 'button';
+    removeBtn.className = 'chat-history-remove';
+    removeBtn.title = t('tt.delete');
+    removeBtn.setAttribute('aria-label', t('tt.delete'));
+    removeBtn.innerHTML = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>';
+    removeBtn.onclick = (e) => {
+      e.stopPropagation();
+      removeConversation(c.id, docKey);
+    };
+
+    item.appendChild(removeBtn);
+    dom.chatHistoryList.appendChild(item);
   });
 }
 
