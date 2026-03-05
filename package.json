@@ -1,6 +1,6 @@
 {
   "name": "mandy",
-  "version": "1.3.2",
+  "version": "1.3.3",
   "description": "A beautiful Markdown reader with elegant, configurable UI",
   "main": "main.js",
   "author": "NooberCong",
@@ -43,15 +43,45 @@
       "!node_modules/electron-builder/**/*"
     ],
     "fileAssociations": [
-      { "ext": "md",       "name": "Markdown File", "description": "Markdown Document", "role": "Editor" },
-      { "ext": "markdown", "name": "Markdown File", "description": "Markdown Document", "role": "Editor" },
-      { "ext": "mdx",      "name": "MDX File",      "description": "MDX Document",      "role": "Editor" }
+      {
+        "ext": "md",
+        "name": "Markdown File",
+        "description": "Markdown Document",
+        "role": "Editor"
+      },
+      {
+        "ext": "markdown",
+        "name": "Markdown File",
+        "description": "Markdown Document",
+        "role": "Editor"
+      },
+      {
+        "ext": "mdx",
+        "name": "MDX File",
+        "description": "MDX Document",
+        "role": "Editor"
+      }
     ],
     "win": {
       "target": [
-        { "target": "nsis",     "arch": ["x64"] },
-        { "target": "portable", "arch": ["x64"] },
-        { "target": "zip",      "arch": ["x64"] }
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "x64"
+          ]
+        }
       ],
       "icon": "assets/icon.ico"
     },

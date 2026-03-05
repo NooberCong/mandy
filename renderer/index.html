@@ -48,6 +48,9 @@
       <button id="btn-find" title="Find (Ctrl+F)" data-i18n-title="tt.find">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
       </button>
+      <button id="btn-chat" title="AI Chat (Ctrl+Shift+A)" data-i18n-title="tt.chat">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+      </button>
       <button id="btn-settings" title="Settings (Ctrl+,)" data-i18n-title="tt.settings">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
       </button>
@@ -358,6 +361,38 @@
         </section>
 
         <section class="settings-section">
+          <h3 data-i18n="set.ai">AI Chat</h3>
+          <div class="setting-row">
+            <label data-i18n="set.aiApiUrl">API URL</label>
+            <input type="text" id="cfg-ai-api-url" placeholder="https://api.openai.com" spellcheck="false" autocomplete="off" />
+          </div>
+          <div class="setting-row">
+            <label data-i18n="set.aiApiKey">API Key</label>
+            <input type="password" id="cfg-ai-api-key" placeholder="sk-..." spellcheck="false" autocomplete="off" />
+          </div>
+          <div class="setting-row">
+            <label data-i18n="set.aiModel">Model</label>
+            <div id="ai-model-picker" class="model-picker">
+              <input type="text" id="cfg-ai-model" placeholder="gpt-4o-mini" spellcheck="false" autocomplete="off" />
+              <button id="cfg-ai-model-toggle" type="button" aria-label="Open model list" aria-expanded="false">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <polyline points="6 9 12 15 18 9"></polyline>
+                </svg>
+              </button>
+              <div id="cfg-ai-model-menu" class="model-menu hidden" role="listbox" aria-label="AI models">
+                <button type="button" class="model-option" data-model="gpt-4o-mini">gpt-4o-mini</button>
+                <button type="button" class="model-option" data-model="gpt-4o">gpt-4o</button>
+                <button type="button" class="model-option" data-model="gpt-4.1-mini">gpt-4.1-mini</button>
+                <button type="button" class="model-option" data-model="gpt-4.1">gpt-4.1</button>
+                <button type="button" class="model-option" data-model="o4-mini">o4-mini</button>
+                <button type="button" class="model-option" data-model="o3-mini">o3-mini</button>
+                <button type="button" class="model-option" data-model="o3">o3</button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="settings-section">
           <h3 data-i18n="set.reading">Reading</h3>
           <div class="setting-row toggle-row">
             <label data-i18n="set.liveReload">Live reload on file change</label>
@@ -396,6 +431,64 @@
     </div>
   </div>
 
+  <!-- Chat config prompt -->
+  <div id="chat-config-overlay" class="hidden">
+    <div id="chat-config-prompt">
+      <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" opacity=".5"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+      <p data-i18n="chat.configTitle">AI Chat requires configuration</p>
+      <span data-i18n="chat.configDesc">Set your API URL, key, and model in settings to start chatting.</span>
+      <button id="chat-config-go" data-i18n="chat.openSettings">Open AI Settings</button>
+    </div>
+  </div>
+
+  <!-- Chat panel -->
+  <div id="chat-overlay" class="hidden">
+    <div id="chat-panel">
+      <div id="chat-resizer" aria-hidden="true"></div>
+      <div id="chat-header">
+        <h2 data-i18n="chat.title">AI Chat</h2>
+        <div id="chat-header-actions">
+          <button id="chat-history" title="History" data-i18n-title="tt.chatHistory">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M3 3v5h5"></path>
+              <path d="M3.05 13A9 9 0 1 0 6 6.3L3 8"></path>
+              <path d="M12 7v5l3 2"></path>
+            </svg>
+          </button>
+          <button id="chat-clear" title="New conversation" data-i18n-title="tt.chatClear">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+          </button>
+          <button id="chat-close">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+          </button>
+        </div>
+      </div>
+      <div id="chat-history-menu" class="hidden">
+        <div id="chat-history-list"></div>
+      </div>
+      <div id="chat-messages">
+        <div id="chat-empty">
+          <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" opacity=".4"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+          <p data-i18n="chat.empty">Ask anything about your document</p>
+          <span id="chat-empty-hint" data-i18n="chat.emptyHint">Conversation is context-aware of the open file.</span>
+          <button id="chat-open-settings" class="hidden" data-i18n="chat.openSettings">Open AI Settings</button>
+        </div>
+      </div>
+      <div id="chat-input-area">
+        <div id="chat-file-badge" class="hidden">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+          <span id="chat-file-name"></span>
+        </div>
+        <div id="chat-input-row">
+          <textarea id="chat-input" rows="1" placeholder="Ask about this document…" data-i18n-placeholder="chat.placeholder" spellcheck="false"></textarea>
+          <button id="chat-send" title="Send" data-i18n-title="tt.chatSend">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Status bar -->
   <div id="status-bar">
     <div id="status-left">
@@ -416,6 +509,7 @@
     <button id="ecm-paste" data-i18n="cm.paste">Paste</button>
     <div class="cm-sep"></div>
     <button id="ecm-find" data-i18n="cm.findDoc">Find in Document</button>
+    <button id="ecm-ask-ai" data-i18n="cm.askAiSpan">Ask AI About Selection</button>
   </div>
 
   <!-- Preview context menu -->
@@ -425,8 +519,10 @@
     <div class="cm-sep"></div>
     <button id="cm-find" data-i18n="cm.findDoc">Find in Document</button>
     <button id="cm-find-editor" data-i18n="cm.findEditor">Find in Editor</button>
+    <button id="cm-ask-ai" data-i18n="cm.askAiSpan">Ask AI About Selection</button>
   </div>
 
   <script src="renderer.js"></script>
 </body>
 </html>
+

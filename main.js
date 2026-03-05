@@ -2,6 +2,9 @@ const {app, BrowserWindow, ipcMain, dialog, Menu, shell, nativeTheme} = require(
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
+const https = require('https');
+const http = require('http');
+const {URL} = require('url');
 const {marked} = require('marked');
 const hljs = require('highlight.js');
 
@@ -102,6 +105,11 @@ const DEFAULT_CONFIG = {
     palette: 'amber',
     language: 'en',
     rememberScrollPos: true,
+    aiApiUrl: 'https://api.openai.com',
+    aiApiKey: '',
+    aiModel: 'gpt-4o-mini',
+    chatWidth: 420,
+    chatHistories: {},
 };
 
 function loadConfig() {
@@ -474,6 +482,14 @@ ipcMain.handle('add-recent', (_, filePath) => addRecent(filePath));
 ipcMain.handle('remove-recent', (_, filePath) => {
     let recents = loadRecents().filter(r => r.path !== filePath);
     saveRecents(recents);
+    try {
+        const cfg = loadConfig();
+        if (cfg.chatHistories && cfg.chatHistories[filePath]) {
+            delete cfg.chatHistories[filePath];
+            saveConfig(cfg);
+        }
+    } catch {
+    }
     return recents;
 });
 ipcMain.handle('get-scroll-position', (_, filePath) => getScrollPosition(filePath));
@@ -610,6 +626,104 @@ ipcMain.handle('get-hljs-theme-css', (_, theme) => {
     }
 });
 
+// ---- AI Chat (OpenAI-compatible streaming) ----
+let activeChatRequest = null;
+
+ipcMain.handle('ai-chat', (_, messages, fileContext) => {
+    const cfg = loadConfig();
+    const apiUrl = (cfg.aiApiUrl || '').replace(/\/+$/, '');
+    const apiKey = cfg.aiApiKey || '';
+    const model = cfg.aiModel || 'gpt-4o-mini';
+
+    if (!apiUrl || !apiKey) {
+        mainWindow.webContents.send('ai-chat-error', 'Please configure AI API URL and API Key in Settings → AI Chat.');
+        return;
+    }
+
+    const systemParts = ['You are a helpful AI assistant integrated into Mandy, a Markdown reader and editor.'];
+    if (fileContext && fileContext.name && fileContext.content) {
+        systemParts.push(
+            `The user currently has the file "${fileContext.name}" open. Here is its content:\n\n${fileContext.content}`
+        );
+    }
+
+    const body = JSON.stringify({
+        model,
+        messages: [
+            {role: 'system', content: systemParts.join('\n\n')},
+            ...messages,
+        ],
+        stream: true,
+    });
+
+    let endpoint;
+    try {
+        endpoint = new URL(apiUrl + '/v1/chat/completions');
+    } catch {
+        mainWindow.webContents.send('ai-chat-error', 'Invalid API URL.');
+        return;
+    }
+
+    const transport = endpoint.protocol === 'https:' ? https : http;
+    const req = transport.request(endpoint, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${apiKey}`,
+        },
+    }, res => {
+        if (res.statusCode !== 200) {
+            let errBody = '';
+            res.on('data', c => errBody += c);
+            res.on('end', () => {
+                let msg = `API error ${res.statusCode}`;
+                try { msg = JSON.parse(errBody).error?.message || msg; } catch {}
+                mainWindow.webContents.send('ai-chat-error', msg);
+            });
+            return;
+        }
+
+        let buffer = '';
+        res.on('data', chunk => {
+            buffer += chunk.toString();
+            const lines = buffer.split('\n');
+            buffer = lines.pop(); // keep incomplete line
+            for (const line of lines) {
+                const trimmed = line.trim();
+                if (!trimmed || !trimmed.startsWith('data:')) continue;
+                const data = trimmed.slice(5).trim();
+                if (data === '[DONE]') {
+                    mainWindow.webContents.send('ai-chat-done');
+                    return;
+                }
+                try {
+                    const parsed = JSON.parse(data);
+                    const delta = parsed.choices?.[0]?.delta?.content;
+                    if (delta) mainWindow.webContents.send('ai-chat-chunk', delta);
+                } catch { /* skip malformed */ }
+            }
+        });
+        res.on('end', () => {
+            mainWindow.webContents.send('ai-chat-done');
+        });
+    });
+
+    req.on('error', err => {
+        mainWindow.webContents.send('ai-chat-error', err.message);
+    });
+
+    req.write(body);
+    req.end();
+    activeChatRequest = req;
+});
+
+ipcMain.handle('ai-chat-cancel', () => {
+    if (activeChatRequest) {
+        try { activeChatRequest.destroy(); } catch {}
+        activeChatRequest = null;
+    }
+});
+
 // File watcher
 let watcher = null;
 ipcMain.handle('watch-file', (_, filePath) => {
@@ -659,3 +773,4 @@ app.on('open-file', (e, filePath) => {
     e.preventDefault();
     if (mainWindow) openFile(filePath);
 });
+

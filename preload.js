@@ -32,6 +32,13 @@ contextBridge.exposeInMainWorld('mandy', {
   renderMarkdown:  (content, filePath) => ipcRenderer.invoke('render-markdown', content, filePath),
   getHljsThemeCSS: (theme)   => ipcRenderer.invoke('get-hljs-theme-css', theme),
 
+  // AI Chat
+  sendChat:    (messages, fileContext) => ipcRenderer.invoke('ai-chat', messages, fileContext),
+  cancelChat:  () => ipcRenderer.invoke('ai-chat-cancel'),
+  onChatChunk: (cb) => ipcRenderer.on('ai-chat-chunk', (_, d) => cb(d)),
+  onChatDone:  (cb) => ipcRenderer.on('ai-chat-done',  () => cb()),
+  onChatError: (cb) => ipcRenderer.on('ai-chat-error', (_, m) => cb(m)),
+
   // Window
   signalReady: () => ipcRenderer.send('renderer-ready'),
   minimize:    () => ipcRenderer.invoke('window-minimize'),

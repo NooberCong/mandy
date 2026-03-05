@@ -55,6 +55,14 @@
 - **Live reload** — document auto-refreshes when the file changes on disk (on by default)
 - **Print** with print-optimised styles (`Ctrl+P`)
 
+### AI Chat
+- **Built-in AI Chat panel** for asking questions about the currently open Markdown document
+- **Ask AI from context menu** to send selected document text into the chat prompt
+- **Conversation history per document** (up to 5 recent conversations) with continue support
+- **Configurable provider settings** - API URL, API key, model presets, and custom model input
+- **Streaming responses** with Markdown rendering and code copy support
+- **Helpful error cards** with direct shortcut to Chat settings
+
 ### Appearance & Personalisation
 - **3 themes** — Dark (default), Light, Sepia
 - **6 accent palettes** — Amber, Sky, Emerald, Violet, Rose, Teal
@@ -89,6 +97,16 @@
 | Folder browser | Table of contents |
 |---|---|
 | ![Folder](docs/screenshots/folder-browser.png) | ![TOC](docs/screenshots/toc.png) |
+
+<!-- SCREENSHOT: AI Chat panel + conversation history -->
+| AI Chat panel | AI Chat history |
+|---|---|
+| ![AI Chat panel](docs/screenshots/chat-panel.png) | ![AI Chat history](docs/screenshots/chat-history.png) |
+
+<!-- SCREENSHOT: AI Chat settings section -->
+| AI Chat settings (API URL, API key, model) |
+|---|
+| ![AI Chat settings](docs/screenshots/chat-settings.png) |
 
 ---
 

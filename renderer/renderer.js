@@ -15,6 +15,14 @@ let viewMode = 'preview';       // 'preview' | 'split' | 'edit'
 let hasUnsavedChanges = false;
 let previewUpdateTimer = null;
 
+// ---- Chat state ----
+let chatMessages = [];   // { role: 'user'|'assistant', content: string }[]
+let chatStreaming = false;
+let chatStreamContent = '';
+let activeConversationByDoc = {};
+const chatMarkdownCache = new Map();
+const chatMarkdownInFlight = new Set();
+
 // ---- Tab state ----
 let tabs = [];
 let activeTabId = null;
@@ -62,9 +70,28 @@ const LOCALES = {
     'dlg.unsaved.detail':"Your changes will be lost if you don't save them.",
     'dlg.unsaved.save':'Save','dlg.unsaved.dontSave':"Don't Save",'dlg.unsaved.cancel':'Cancel',
     'tt.findPrev':'Previous match','tt.findNext':'Next match',
-    'cm.cut':'Cut','cm.copy':'Copy','cm.paste':'Paste','cm.copyMd':'Copy with Markdown','cm.copyText':'Copy Plain Text','cm.findDoc':'Find in Document','cm.findEditor':'Find in Editor',
+    'cm.cut':'Cut','cm.copy':'Copy','cm.paste':'Paste','cm.copyMd':'Copy with Markdown','cm.copyText':'Copy Plain Text','cm.findDoc':'Find in Document','cm.findEditor':'Find in Editor','cm.askAiSpan':'Ask AI About Selection',
     'tt.newFile':'New file','tt.newFolder':'New folder','tt.removeRecent':'Remove from recents','tt.delete':'Delete',
     'copied':'Copied!','folder.newFilePh':'filename.md','folder.newFolderPh':'folder name',
+    'set.ai':'AI Chat','set.aiApiUrl':'API URL','set.aiApiKey':'API Key','set.aiModel':'Model',
+    'tt.chat':'AI Chat (Ctrl+Shift+A)','tt.chatSend':'Send','tt.chatClear':'New conversation','tt.chatHistory':'History',
+    'chat.title':'AI Chat','chat.empty':'Ask anything about your document',
+    'chat.emptyHint':'Conversation is context-aware of the open file.',
+    'chat.placeholder':'Ask about this document\u2026','chat.configNeeded':'Configure AI in Settings \u2192 AI Chat to get started.',
+    'chat.configTitle':'AI Chat requires configuration','chat.configDesc':'Set your API URL, key, and model in settings to start chatting.',
+    'chat.openSettings':'Open AI Settings',
+    'chat.historyEmpty':'No saved conversations for this document',
+    'chat.askSectionPrefix':'Look at this section of the document',
+    'chat.err.configTitle':'Check AI Settings',
+    'chat.err.configDesc':'Your AI provider URL, API key, or model is missing or invalid.',
+    'chat.err.authTitle':'Authentication Failed',
+    'chat.err.authDesc':'The API key was rejected. Verify the key and provider endpoint in AI Settings.',
+    'chat.err.rateTitle':'Rate Limited',
+    'chat.err.rateDesc':'The provider is rate limiting requests or quota is exhausted. Try again shortly.',
+    'chat.err.networkTitle':'Network Error',
+    'chat.err.networkDesc':'Could not reach the AI provider. Check internet access, endpoint URL, or firewall/proxy settings.',
+    'chat.err.genericTitle':'AI Request Failed',
+    'chat.err.genericDesc':'The AI request could not be completed.',
   },
   es: {
     'nav.recent':'Reciente','nav.folder':'Carpeta','nav.outline':'Esquema',
@@ -109,6 +136,12 @@ const LOCALES = {
     'cm.cut':'Cortar','cm.copy':'Copiar','cm.paste':'Pegar','cm.copyMd':'Copiar con Markdown','cm.copyText':'Copiar texto plano','cm.findDoc':'Buscar en el documento','cm.findEditor':'Buscar en el editor',
     'tt.newFile':'Nuevo archivo','tt.newFolder':'Nueva carpeta','tt.removeRecent':'Eliminar de recientes','tt.delete':'Eliminar',
     'copied':'\u00a1Copiado!','folder.newFilePh':'archivo.md','folder.newFolderPh':'nombre de carpeta',
+    'tt.chatHistory':'History','chat.historyEmpty':'No saved conversations for this document','chat.askSectionPrefix':'Look at this section of the document',
+    'chat.err.configTitle':'Check AI Settings','chat.err.configDesc':'Your AI provider URL, API key, or model is missing or invalid.',
+    'chat.err.authTitle':'Authentication Failed','chat.err.authDesc':'The API key was rejected. Verify the key and provider endpoint in AI Settings.',
+    'chat.err.rateTitle':'Rate Limited','chat.err.rateDesc':'The provider is rate limiting requests or quota is exhausted. Try again shortly.',
+    'chat.err.networkTitle':'Network Error','chat.err.networkDesc':'Could not reach the AI provider. Check internet access, endpoint URL, or firewall/proxy settings.',
+    'chat.err.genericTitle':'AI Request Failed','chat.err.genericDesc':'The AI request could not be completed.',
   },
   fr: {
     'nav.recent':'R\xe9cent','nav.folder':'Dossier','nav.outline':'Plan',
@@ -153,6 +186,12 @@ const LOCALES = {
     'cm.cut':'Couper','cm.copy':'Copier','cm.paste':'Coller','cm.copyMd':'Copier avec Markdown','cm.copyText':'Copier en texte brut','cm.findDoc':'Rechercher dans le document','cm.findEditor':'Rechercher dans l\u2019\u00e9diteur',
     'tt.newFile':'Nouveau fichier','tt.newFolder':'Nouveau dossier','tt.removeRecent':'Supprimer des r\u00e9cents','tt.delete':'Supprimer',
     'copied':'Copi\u00e9\u00a0!','folder.newFilePh':'fichier.md','folder.newFolderPh':'nom du dossier',
+    'tt.chatHistory':'History','chat.historyEmpty':'No saved conversations for this document','chat.askSectionPrefix':'Look at this section of the document',
+    'chat.err.configTitle':'Check AI Settings','chat.err.configDesc':'Your AI provider URL, API key, or model is missing or invalid.',
+    'chat.err.authTitle':'Authentication Failed','chat.err.authDesc':'The API key was rejected. Verify the key and provider endpoint in AI Settings.',
+    'chat.err.rateTitle':'Rate Limited','chat.err.rateDesc':'The provider is rate limiting requests or quota is exhausted. Try again shortly.',
+    'chat.err.networkTitle':'Network Error','chat.err.networkDesc':'Could not reach the AI provider. Check internet access, endpoint URL, or firewall/proxy settings.',
+    'chat.err.genericTitle':'AI Request Failed','chat.err.genericDesc':'The AI request could not be completed.',
   },
   de: {
     'nav.recent':'Zuletzt','nav.folder':'Ordner','nav.outline':'Gliederung',
@@ -197,6 +236,12 @@ const LOCALES = {
     'cm.cut':'Ausschneiden','cm.copy':'Kopieren','cm.paste':'Einfügen','cm.copyMd':'Mit Markdown kopieren','cm.copyText':'Als Text kopieren','cm.findDoc':'Im Dokument suchen','cm.findEditor':'Im Editor suchen',
     'tt.newFile':'Neue Datei','tt.newFolder':'Neuer Ordner','tt.removeRecent':'Aus Zuletzt entfernen','tt.delete':'L\u00f6schen',
     'copied':'Kopiert!','folder.newFilePh':'datei.md','folder.newFolderPh':'Ordnername',
+    'tt.chatHistory':'History','chat.historyEmpty':'No saved conversations for this document','chat.askSectionPrefix':'Look at this section of the document',
+    'chat.err.configTitle':'Check AI Settings','chat.err.configDesc':'Your AI provider URL, API key, or model is missing or invalid.',
+    'chat.err.authTitle':'Authentication Failed','chat.err.authDesc':'The API key was rejected. Verify the key and provider endpoint in AI Settings.',
+    'chat.err.rateTitle':'Rate Limited','chat.err.rateDesc':'The provider is rate limiting requests or quota is exhausted. Try again shortly.',
+    'chat.err.networkTitle':'Network Error','chat.err.networkDesc':'Could not reach the AI provider. Check internet access, endpoint URL, or firewall/proxy settings.',
+    'chat.err.genericTitle':'AI Request Failed','chat.err.genericDesc':'The AI request could not be completed.',
   },
   pt: {
     'nav.recent':'Recente','nav.folder':'Pasta','nav.outline':'Estrutura',
@@ -241,6 +286,12 @@ const LOCALES = {
     'cm.cut':'Cortar','cm.copy':'Copiar','cm.paste':'Colar','cm.copyMd':'Copiar com Markdown','cm.copyText':'Copiar texto simples','cm.findDoc':'Localizar no documento','cm.findEditor':'Localizar no editor',
     'tt.newFile':'Novo ficheiro','tt.newFolder':'Nova pasta','tt.removeRecent':'Remover dos recentes','tt.delete':'Eliminar',
     'copied':'Copiado!','folder.newFilePh':'ficheiro.md','folder.newFolderPh':'nome da pasta',
+    'tt.chatHistory':'History','chat.historyEmpty':'No saved conversations for this document','chat.askSectionPrefix':'Look at this section of the document',
+    'chat.err.configTitle':'Check AI Settings','chat.err.configDesc':'Your AI provider URL, API key, or model is missing or invalid.',
+    'chat.err.authTitle':'Authentication Failed','chat.err.authDesc':'The API key was rejected. Verify the key and provider endpoint in AI Settings.',
+    'chat.err.rateTitle':'Rate Limited','chat.err.rateDesc':'The provider is rate limiting requests or quota is exhausted. Try again shortly.',
+    'chat.err.networkTitle':'Network Error','chat.err.networkDesc':'Could not reach the AI provider. Check internet access, endpoint URL, or firewall/proxy settings.',
+    'chat.err.genericTitle':'AI Request Failed','chat.err.genericDesc':'The AI request could not be completed.',
   },
   ja: {
     'nav.recent':'\u6700\u8fd1','nav.folder':'\u30d5\u30a9\u30eb\u30c0','nav.outline':'\u30a2\u30a6\u30c8\u30e9\u30a4\u30f3',
@@ -285,6 +336,12 @@ const LOCALES = {
     'cm.copyMd':'Markdown\u3067\u30b3\u30d4\u30fc','cm.copyText':'\u30c6\u30ad\u30b9\u30c8\u3068\u3057\u3066\u30b3\u30d4\u30fc','cm.findDoc':'\u30c9\u30ad\u30e5\u30e1\u30f3\u30c8\u3067\u691c\u7d22','cm.findEditor':'\u30a8\u30c7\u30a3\u30bf\u3067\u691c\u7d22',
     'tt.newFile':'\u65b0\u3057\u3044\u30d5\u30a1\u30a4\u30eb','tt.newFolder':'\u65b0\u3057\u3044\u30d5\u30a9\u30eb\u30c0','tt.removeRecent':'\u6700\u8fd1\u304b\u3089\u524a\u9664','tt.delete':'\u524a\u9664',
     'copied':'\u30b3\u30d4\u30fc\u3057\u307e\u3057\u305f\uff01','folder.newFilePh':'\u30d5\u30a1\u30a4\u30eb\u540d.md','folder.newFolderPh':'\u30d5\u30a9\u30eb\u30c0\u540d',
+    'tt.chatHistory':'History','chat.historyEmpty':'No saved conversations for this document','chat.askSectionPrefix':'Look at this section of the document',
+    'chat.err.configTitle':'Check AI Settings','chat.err.configDesc':'Your AI provider URL, API key, or model is missing or invalid.',
+    'chat.err.authTitle':'Authentication Failed','chat.err.authDesc':'The API key was rejected. Verify the key and provider endpoint in AI Settings.',
+    'chat.err.rateTitle':'Rate Limited','chat.err.rateDesc':'The provider is rate limiting requests or quota is exhausted. Try again shortly.',
+    'chat.err.networkTitle':'Network Error','chat.err.networkDesc':'Could not reach the AI provider. Check internet access, endpoint URL, or firewall/proxy settings.',
+    'chat.err.genericTitle':'AI Request Failed','chat.err.genericDesc':'The AI request could not be completed.',
   },
   zh: {
     'nav.recent':'\u6700\u8fd1','nav.folder':'\u6587\u4ef6\u5939','nav.outline':'\u5927\u7eb2',
@@ -329,6 +386,12 @@ const LOCALES = {
     'cm.cut':'剪切','cm.copy':'复制','cm.paste':'粘贴','cm.copyMd':'\u590d\u5236\u4e3a Markdown','cm.copyText':'\u590d\u5236\u4e3a\u7eaf\u6587\u672c','cm.findDoc':'\u5728\u6587\u6863\u4e2d\u67e5\u627e','cm.findEditor':'\u5728\u7f16\u8f91\u5668\u4e2d\u67e5\u627e',
     'tt.newFile':'\u65b0\u5efa\u6587\u4ef6','tt.newFolder':'\u65b0\u5efa\u6587\u4ef6\u5939','tt.removeRecent':'\u4ece\u6700\u8fd1\u79fb\u9664','tt.delete':'\u5220\u9664',
     'copied':'\u5df2\u590d\u5236\uff01','folder.newFilePh':'\u6587\u4ef6\u540d.md','folder.newFolderPh':'\u6587\u4ef6\u5939\u540d\u79f0',
+    'tt.chatHistory':'History','chat.historyEmpty':'No saved conversations for this document','chat.askSectionPrefix':'Look at this section of the document',
+    'chat.err.configTitle':'Check AI Settings','chat.err.configDesc':'Your AI provider URL, API key, or model is missing or invalid.',
+    'chat.err.authTitle':'Authentication Failed','chat.err.authDesc':'The API key was rejected. Verify the key and provider endpoint in AI Settings.',
+    'chat.err.rateTitle':'Rate Limited','chat.err.rateDesc':'The provider is rate limiting requests or quota is exhausted. Try again shortly.',
+    'chat.err.networkTitle':'Network Error','chat.err.networkDesc':'Could not reach the AI provider. Check internet access, endpoint URL, or firewall/proxy settings.',
+    'chat.err.genericTitle':'AI Request Failed','chat.err.genericDesc':'The AI request could not be completed.',
   },
 };
 
@@ -400,6 +463,18 @@ const dom = {
   editorTextarea: $('#editor-textarea'),
   editorPos: $('#editor-pos'),
   editorChars: $('#editor-chars'),
+  chatOverlay: $('#chat-overlay'),
+  chatPanel: $('#chat-panel'),
+  chatResizer: $('#chat-resizer'),
+  chatMessages: $('#chat-messages'),
+  chatEmpty: $('#chat-empty'),
+  chatInput: $('#chat-input'),
+  chatSend: $('#chat-send'),
+  chatHistoryBtn: $('#chat-history'),
+  chatHistoryMenu: $('#chat-history-menu'),
+  chatHistoryList: $('#chat-history-list'),
+  chatFileBadge: $('#chat-file-badge'),
+  chatFileName: $('#chat-file-name'),
 };
 
 // ---- Heading IDs (added post-render via DOM — sidesteps marked v13 token quirks) ----
@@ -750,6 +825,7 @@ function activateTab(tabId) {
   });
 
   renderTabBar();
+  updateChatButtonState();
 
   // Mark active file in sidebar
   $$('.file-item').forEach(el => {
@@ -828,6 +904,7 @@ async function closeTab(tabId) {
     $$('.file-item').forEach(el => el.classList.remove('active'));
     $$('.recent-item').forEach(el => el.classList.remove('active'));
     renderTabBar();
+    updateChatButtonState();
     return;
   }
 
@@ -1675,6 +1752,21 @@ function updateScrollThumb() {
 
 // ---- Preview context menu ----
 
+function buildAskAiSpanPrompt(selectionText) {
+  return `${t('chat.askSectionPrefix')} """${selectionText.trimEnd()}"""\n\n`;
+}
+
+function openAiSettingsFromChat() {
+  closeChat();
+  $('#chat-config-overlay')?.classList.add('hidden');
+  closeChatHistoryMenu();
+  openSettings();
+  requestAnimationFrame(() => {
+    const aiSection = $('#cfg-ai-api-url')?.closest('.settings-section');
+    if (aiSection) aiSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+}
+
 // Converts a DOM node (fragment from a selection) back to approximate Markdown.
 function htmlToMd(node) {
   if (node.nodeType === Node.TEXT_NODE) return node.textContent;
@@ -1724,6 +1816,7 @@ function htmlToMd(node) {
   const btnText       = document.getElementById('cm-copy-text');
   const btnFind       = document.getElementById('cm-find');
   const btnFindEditor = document.getElementById('cm-find-editor');
+  const btnAskAi      = document.getElementById('cm-ask-ai');
 
   function hideMenu() { menu.classList.add('hidden'); }
 
@@ -1732,6 +1825,7 @@ function htmlToMd(node) {
     btnText.disabled       = !hasSelection;
     btnFind.disabled       = !hasSelection;
     btnFindEditor.disabled = !hasSelection;
+    btnAskAi.disabled      = !hasSelection;
 
     // Position, then clamp so it doesn't overflow the viewport
     menu.classList.remove('hidden');
@@ -1796,6 +1890,13 @@ function htmlToMd(node) {
     dom.editorTextarea.scrollTop = Math.max(0, targetY - dom.editorTextarea.clientHeight / 2);
   };
 
+  btnAskAi.onclick = () => {
+    const text = window.getSelection()?.toString() || '';
+    hideMenu();
+    if (!text.trim()) return;
+    askAiAboutSpan(text);
+  };
+
   // Dismiss on any click outside the menu or on Escape
   document.addEventListener('mousedown', e => {
     if (!menu.classList.contains('hidden') && !menu.contains(e.target)) hideMenu();
@@ -1808,10 +1909,12 @@ function htmlToMd(node) {
 (function initEditorContextMenu() {
   const menu = document.getElementById('editor-context-menu');
   const ta   = dom.editorTextarea;
+  const btnAskAi = document.getElementById('ecm-ask-ai');
 
   function hideMenu() { menu.classList.add('hidden'); }
 
-  function showMenu(x, y) {
+  function showMenu(x, y, hasSelection) {
+    btnAskAi.disabled = !hasSelection;
     menu.classList.remove('hidden');
     const mw = menu.offsetWidth, mh = menu.offsetHeight;
     menu.style.left = Math.min(x, window.innerWidth  - mw - 4) + 'px';
@@ -1820,7 +1923,7 @@ function htmlToMd(node) {
 
   ta.addEventListener('contextmenu', e => {
     e.preventDefault();
-    showMenu(e.clientX, e.clientY);
+    showMenu(e.clientX, e.clientY, ta.selectionStart !== ta.selectionEnd);
   });
 
   document.getElementById('ecm-cut').onclick = () => {
@@ -1849,6 +1952,15 @@ function htmlToMd(node) {
     const text = ta.value.slice(ta.selectionStart, ta.selectionEnd).trim();
     hideMenu();
     openFind(text || undefined);
+  };
+
+  btnAskAi.onclick = () => {
+    const start = ta.selectionStart;
+    const end = ta.selectionEnd;
+    const text = ta.value.slice(start, end);
+    hideMenu();
+    if (!text.trim() || start === end) return;
+    askAiAboutSpan(text);
   };
 
   document.addEventListener('mousedown', e => {
@@ -1992,6 +2104,606 @@ function findNav(dir) {
   highlightCurrent();
 }
 
+// ---- AI Chat ----
+function hasOpenMarkdownDocument() {
+  const activeTab = tabs.find(t => t.id === activeTabId);
+  if (!activeTab || !activeTab.path) return false;
+  return /\.(md|markdown|mdown|mkd|mdx)$/i.test(activeTab.path);
+}
+
+function updateChatButtonState() {
+  const btn = $('#btn-chat');
+  if (!btn) return;
+  btn.disabled = !hasOpenMarkdownDocument();
+}
+
+function getChatDocKey() {
+  const activeTab = tabs.find(t => t.id === activeTabId);
+  return activeTab?.path || '__no_file__';
+}
+
+function ensureChatHistories() {
+  if (!cfg.chatHistories || typeof cfg.chatHistories !== 'object') cfg.chatHistories = {};
+}
+
+function getDocConversations(docKey = getChatDocKey()) {
+  ensureChatHistories();
+  const list = cfg.chatHistories[docKey];
+  return Array.isArray(list) ? list : [];
+}
+
+function setDocConversations(list, docKey = getChatDocKey()) {
+  ensureChatHistories();
+  cfg.chatHistories[docKey] = list.slice(0, 5);
+  window.mandy.saveConfig(cfg);
+}
+
+function getConversationTitle(messages) {
+  const firstUser = messages.find(m => m.role === 'user' && (m.content || '').trim());
+  if (!firstUser) return t('tt.chatClear');
+  const oneLine = firstUser.content.replace(/\s+/g, ' ').trim();
+  return oneLine.length > 56 ? oneLine.slice(0, 56) + '…' : oneLine;
+}
+
+function getChatPersistableMessages() {
+  return chatMessages
+    .filter(m => m.role === 'user' || m.role === 'assistant')
+    .map(m => ({ role: m.role, content: m.content }));
+}
+
+function persistCurrentConversation() {
+  const docKey = getChatDocKey();
+  const messages = getChatPersistableMessages();
+  if (messages.length === 0) return;
+
+  const now = Date.now();
+  const list = getDocConversations(docKey);
+  let conversationId = activeConversationByDoc[docKey];
+  if (!conversationId) {
+    conversationId = `c_${now}_${Math.random().toString(36).slice(2, 8)}`;
+    activeConversationByDoc[docKey] = conversationId;
+  }
+
+  const conversation = {
+    id: conversationId,
+    title: getConversationTitle(messages),
+    updatedAt: now,
+    messages,
+  };
+
+  const idx = list.findIndex(c => c.id === conversationId);
+  if (idx >= 0) list[idx] = conversation;
+  else list.unshift(conversation);
+  list.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+  setDocConversations(list.slice(0, 5), docKey);
+  renderChatHistoryList();
+}
+
+function loadConversation(conversationId, docKey = getChatDocKey()) {
+  const list = getDocConversations(docKey);
+  const convo = list.find(c => c.id === conversationId);
+  if (!convo) return false;
+  activeConversationByDoc[docKey] = convo.id;
+  chatMessages = Array.isArray(convo.messages) ? convo.messages.map(m => ({ role: m.role, content: m.content })) : [];
+  chatStreaming = false;
+  chatStreamContent = '';
+  dom.chatSend.disabled = false;
+  renderChatMessages();
+  renderChatHistoryList();
+  return true;
+}
+
+function loadLatestConversation(docKey = getChatDocKey()) {
+  const list = getDocConversations(docKey);
+  if (list.length === 0) {
+    activeConversationByDoc[docKey] = null;
+    chatMessages = [];
+    chatStreaming = false;
+    chatStreamContent = '';
+    renderChatMessages();
+    renderChatHistoryList();
+    return;
+  }
+  const activeId = activeConversationByDoc[docKey];
+  if (activeId && loadConversation(activeId, docKey)) return;
+  loadConversation(list[0].id, docKey);
+}
+
+function closeChatHistoryMenu() {
+  dom.chatHistoryMenu?.classList.add('hidden');
+}
+
+function toggleChatHistoryMenu() {
+  if (!dom.chatHistoryMenu) return;
+  const willOpen = dom.chatHistoryMenu.classList.contains('hidden');
+  if (!willOpen) {
+    closeChatHistoryMenu();
+    return;
+  }
+  renderChatHistoryList();
+  dom.chatHistoryMenu.classList.remove('hidden');
+}
+
+function renderChatHistoryList() {
+  if (!dom.chatHistoryList) return;
+  const docKey = getChatDocKey();
+  const list = getDocConversations(docKey);
+  const activeId = activeConversationByDoc[docKey];
+  dom.chatHistoryList.innerHTML = '';
+  if (list.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'chat-history-empty';
+    empty.textContent = t('chat.historyEmpty');
+    dom.chatHistoryList.appendChild(empty);
+    return;
+  }
+  list.forEach(c => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'chat-history-item';
+    if (c.id === activeId) btn.classList.add('active');
+    const ts = c.updatedAt ? relativeTime(c.updatedAt) : '';
+    btn.innerHTML = `<span class="chat-history-title">${escapeHtml(c.title || t('tt.chatClear'))}</span><span class="chat-history-meta">${escapeHtml(ts)}</span>`;
+    btn.onclick = () => {
+      loadConversation(c.id, docKey);
+      closeChatHistoryMenu();
+    };
+    dom.chatHistoryList.appendChild(btn);
+  });
+}
+
+function openChat() {
+  if (!hasOpenMarkdownDocument()) return;
+  // If AI not configured, show config prompt instead of the chat panel
+  if (!cfg.aiApiUrl || !cfg.aiApiKey) {
+    $('#chat-config-overlay').classList.remove('hidden');
+    return;
+  }
+  dom.chatOverlay.classList.remove('hidden');
+  dom.body.classList.add('chat-open');
+  loadLatestConversation();
+  updateChatFileBadge();
+  requestAnimationFrame(() => {
+    dom.chatMessages.scrollTop = dom.chatMessages.scrollHeight;
+  });
+  dom.chatInput.focus();
+}
+
+function closeChat() {
+  dom.chatOverlay.classList.add('hidden');
+  dom.body.classList.remove('chat-open');
+  closeChatHistoryMenu();
+}
+
+function clearChat() {
+  activeConversationByDoc[getChatDocKey()] = null;
+  chatMessages = [];
+  chatStreaming = false;
+  chatStreamContent = '';
+  renderChatMessages();
+  renderChatHistoryList();
+  closeChatHistoryMenu();
+  dom.chatInput.focus();
+}
+
+function updateChatFileBadge() {
+  const activeTab = tabs.find(t => t.id === activeTabId);
+  if (activeTab && activeTab.path) {
+    dom.chatFileName.textContent = activeTab.name;
+    dom.chatFileBadge.classList.remove('hidden');
+  } else {
+    dom.chatFileBadge.classList.add('hidden');
+  }
+}
+
+function renderChatMessages() {
+  const distanceFromBottom = dom.chatMessages.scrollHeight - dom.chatMessages.scrollTop - dom.chatMessages.clientHeight;
+  const wasNearBottom = distanceFromBottom < 40;
+
+  // Keep the empty state element, clear everything else
+  const children = [...dom.chatMessages.children];
+  children.forEach(c => { if (c.id !== 'chat-empty') c.remove(); });
+
+  if (chatMessages.length === 0 && !chatStreaming) {
+    dom.chatEmpty.classList.remove('hidden');
+    // Show config hint if AI not configured
+    const hint = $('#chat-empty-hint');
+    const cfgBtn = $('#chat-open-settings');
+    const isConfigured = cfg.aiApiUrl && cfg.aiApiKey;
+    if (hint) {
+      hint.textContent = isConfigured
+        ? t('chat.emptyHint')
+        : t('chat.configNeeded');
+    }
+    if (cfgBtn) cfgBtn.classList.toggle('hidden', !!isConfigured);
+    return;
+  }
+  dom.chatEmpty.classList.add('hidden');
+
+  chatMessages.forEach(msg => {
+    const el = document.createElement('div');
+    if (msg.role === 'user') {
+      el.className = 'chat-msg chat-msg-user';
+      el.textContent = msg.content;
+    } else if (msg.role === 'error') {
+      el.className = 'chat-msg chat-msg-error';
+      el.innerHTML = renderChatErrorCard(msg.error || normalizeChatError(msg.content));
+    } else {
+      el.className = 'chat-msg chat-msg-assistant';
+      el.innerHTML = formatAssistantMessage(msg.content);
+    }
+    dom.chatMessages.appendChild(el);
+  });
+
+  // If currently streaming, add a partial message or typing indicator
+  if (chatStreaming) {
+    const gap = document.createElement('div');
+    gap.className = 'chat-stream-gap';
+    dom.chatMessages.appendChild(gap);
+
+    if (chatStreamContent) {
+      const el = document.createElement('div');
+      el.className = 'chat-msg chat-msg-assistant chat-msg-streaming';
+      el.innerHTML = formatStreamingAssistantMessage(chatStreamContent);
+      dom.chatMessages.appendChild(el);
+    } else {
+      const dots = document.createElement('div');
+      dots.className = 'chat-typing';
+      dots.innerHTML = '<span class="chat-typing-dot"></span><span class="chat-typing-dot"></span><span class="chat-typing-dot"></span>';
+      dom.chatMessages.appendChild(dots);
+    }
+  }
+
+  // Keep sticky scroll whenever user is near the bottom (including streaming).
+  if (wasNearBottom) {
+    dom.chatMessages.scrollTop = dom.chatMessages.scrollHeight;
+  }
+}
+
+function normalizeChatError(raw) {
+  const msg = String(raw || '').trim();
+  const lower = msg.toLowerCase();
+
+  if (!msg || lower.includes('please configure ai api url') || lower.includes('invalid api url')) {
+    return {
+      title: t('chat.err.configTitle'),
+      description: t('chat.err.configDesc'),
+      technical: msg || '',
+      canOpenSettings: true,
+    };
+  }
+  if (lower.includes('401') || lower.includes('unauthorized') || lower.includes('api key') || lower.includes('invalid_api_key')) {
+    return {
+      title: t('chat.err.authTitle'),
+      description: t('chat.err.authDesc'),
+      technical: msg,
+      canOpenSettings: true,
+    };
+  }
+  if (lower.includes('429') || lower.includes('rate limit') || lower.includes('quota')) {
+    return {
+      title: t('chat.err.rateTitle'),
+      description: t('chat.err.rateDesc'),
+      technical: msg,
+      canOpenSettings: true,
+    };
+  }
+  if (/(enotfound|econnrefused|econnreset|etimedout|network|fetch failed|socket hang up)/i.test(msg)) {
+    return {
+      title: t('chat.err.networkTitle'),
+      description: t('chat.err.networkDesc'),
+      technical: msg,
+      canOpenSettings: true,
+    };
+  }
+  return {
+    title: t('chat.err.genericTitle'),
+    description: t('chat.err.genericDesc'),
+    technical: msg || '',
+    canOpenSettings: true,
+  };
+}
+
+function renderChatErrorCard(err) {
+  const e = err || {};
+  const title = escapeHtml(e.title || t('chat.err.genericTitle'));
+  const desc = escapeHtml(e.description || t('chat.err.genericDesc'));
+  const tech = escapeHtml(e.technical || '');
+  const action = e.canOpenSettings
+    ? `<button type="button" class="chat-error-action">${escapeHtml(t('chat.openSettings'))}</button>`
+    : '';
+  return (
+    `<div class="chat-error-card">` +
+      `<div class="chat-error-title">${title}</div>` +
+      `<div class="chat-error-desc">${desc}</div>` +
+      (tech ? `<div class="chat-error-tech">${tech}</div>` : '') +
+      action +
+    `</div>`
+  );
+}
+
+function formatChatInlineMarkdown(input) {
+  let text = escapeHtml(input || '');
+  const inlineCodes = [];
+  text = text.replace(/`([^`\n]+)`/g, (_, code) => {
+    const idx = inlineCodes.push(`<code>${code}</code>`) - 1;
+    return `@@CHATCODE${idx}@@`;
+  });
+  text = text.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, (_, label, url) =>
+    `<a href="${url}" target="_blank" rel="noopener noreferrer">${label}</a>`
+  );
+  text = text.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  text = text.replace(/__([^_]+)__/g, '<strong>$1</strong>');
+  text = text.replace(/\*([^*\n]+)\*/g, '<em>$1</em>');
+  text = text.replace(/_([^_\n]+)_/g, '<em>$1</em>');
+  text = text.replace(/~~([^~]+)~~/g, '<del>$1</del>');
+  return text.replace(/@@CHATCODE(\d+)@@/g, (_, i) => inlineCodes[Number(i)] || '');
+}
+
+function formatChatBlockMarkdown(mdText) {
+  const raw = (mdText || '').replace(/\r\n/g, '\n').trim();
+  if (!raw) return '';
+
+  const blocks = [];
+  const lines = raw.split('\n');
+  const scanned = [];
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    const fenceOpen = line.match(/^\s*(`{3,}|~{3,})([^\n]*)$/);
+    if (fenceOpen) {
+      const marker = fenceOpen[1][0];
+      const markerLen = fenceOpen[1].length;
+      const language = (fenceOpen[2] || '').trim();
+      i += 1;
+      const codeLines = [];
+      while (i < lines.length) {
+        const close = lines[i].match(/^\s*(`{3,}|~{3,})\s*$/);
+        if (close && close[1][0] === marker && close[1].length >= markerLen) {
+          break;
+        }
+        codeLines.push(lines[i]);
+        i += 1;
+      }
+      if (i < lines.length) i += 1;
+      const body = codeLines.join('\n').replace(/\n$/, '');
+      const html = `<pre><code class="${language ? `language-${escapeHtml(language)}` : ''}">${escapeHtml(body)}</code></pre>`;
+      const idx = blocks.push(html) - 1;
+      scanned.push(`@@CHATBLOCK${idx}@@`);
+      continue;
+    }
+
+    const indented = line.match(/^(?:\t| {4})(.*)$/);
+    if (indented) {
+      const codeLines = [indented[1]];
+      i += 1;
+      while (i < lines.length) {
+        const nextIndented = lines[i].match(/^(?:\t| {4})(.*)$/);
+        if (!nextIndented) break;
+        codeLines.push(nextIndented[1]);
+        i += 1;
+      }
+      const body = codeLines.join('\n');
+      const html = `<pre><code>${escapeHtml(body)}</code></pre>`;
+      const idx = blocks.push(html) - 1;
+      scanned.push(`@@CHATBLOCK${idx}@@`);
+      continue;
+    }
+
+    scanned.push(line);
+    i += 1;
+  }
+  const withCodePlaceholders = scanned.join('\n');
+
+  const chunks = withCodePlaceholders.split(/\n{2,}/);
+  const html = chunks.map(chunk => {
+    const block = chunk.trim();
+    if (!block) return '';
+    const heading = block.match(/^(#{1,6})\s+(.+)$/);
+    if (heading) {
+      const lvl = heading[1].length;
+      return `<h${lvl}>${formatChatInlineMarkdown(heading[2].trim())}</h${lvl}>`;
+    }
+    const lines = block.split('\n').map(s => s.trim()).filter(Boolean);
+    if (lines.length > 0 && lines.every(l => /^[-*+]\s+/.test(l))) {
+      return `<ul>${lines.map(l => `<li>${formatChatInlineMarkdown(l.replace(/^[-*+]\s+/, ''))}</li>`).join('')}</ul>`;
+    }
+    if (lines.length > 0 && lines.every(l => /^\d+\.\s+/.test(l))) {
+      return `<ol>${lines.map(l => `<li>${formatChatInlineMarkdown(l.replace(/^\d+\.\s+/, ''))}</li>`).join('')}</ol>`;
+    }
+    if (lines.length > 0 && lines.every(l => /^>\s?/.test(l))) {
+      return `<blockquote>${lines.map(l => `<p>${formatChatInlineMarkdown(l.replace(/^>\s?/, ''))}</p>`).join('')}</blockquote>`;
+    }
+    if (/^@@CHATBLOCK\d+@@$/.test(block)) return block;
+    return `<p>${formatChatInlineMarkdown(block).replace(/\n/g, '<br>')}</p>`;
+  }).filter(Boolean).join('');
+
+  return html.replace(/@@CHATBLOCK(\d+)@@/g, (_, i) => blocks[Number(i)] || '');
+}
+
+function formatStreamingAssistantMessage(text) {
+  const src = (text || '').replace(/\r\n/g, '\n');
+  if (!src) return '';
+
+  const fenceMatches = [...src.matchAll(/^```.*$/gm)];
+  const hasUnclosedFence = fenceMatches.length % 2 === 1;
+  const lastFenceStart = hasUnclosedFence ? fenceMatches[fenceMatches.length - 1].index : -1;
+
+  // Consider fully completed lines as stable during streaming.
+  let stableEnd = src.lastIndexOf('\n');
+  stableEnd = stableEnd >= 0 ? stableEnd + 1 : 0;
+  if (hasUnclosedFence && lastFenceStart >= 0 && stableEnd > lastFenceStart) stableEnd = lastFenceStart;
+  if (stableEnd < 0) stableEnd = 0;
+
+  const stable = src.slice(0, stableEnd);
+  const tail = src.slice(stableEnd);
+  const stableHtml = stable.trim() ? formatChatBlockMarkdown(stable) : '';
+  const tailHtml = tail ? `<p>${escapeHtml(tail).replace(/\n/g, '<br>')}</p>` : '';
+  return stableHtml + tailHtml;
+}
+
+function formatAssistantMessage(text) {
+  const key = text || '';
+  if (chatMarkdownCache.has(key)) return chatMarkdownCache.get(key);
+  queueAssistantMarkdownRender(key);
+  return formatChatBlockMarkdown(key);
+}
+
+function normalizeChatHtml(html) {
+  return html || '';
+}
+
+function queueAssistantMarkdownRender(text) {
+  const key = text || '';
+  if (!key || chatMarkdownCache.has(key) || chatMarkdownInFlight.has(key)) return;
+  chatMarkdownInFlight.add(key);
+  window.mandy.renderMarkdown(key, null)
+    .then(html => {
+      chatMarkdownCache.set(key, normalizeChatHtml(html));
+      renderChatMessages();
+    })
+    .catch(() => {})
+    .finally(() => chatMarkdownInFlight.delete(key));
+}
+
+function submitChatPrompt(text, opts = {}) {
+  const clearInput = opts.clearInput !== false;
+  const prompt = (text || '').trim();
+  if (!prompt || chatStreaming) return false;
+
+  // Require AI config before sending
+  if (!cfg.aiApiUrl || !cfg.aiApiKey) {
+    openChat();
+    if (!dom.chatOverlay.classList.contains('hidden')) {
+      chatMessages.push({ role: 'error', content: t('chat.configNeeded') });
+      renderChatMessages();
+    }
+    return false;
+  }
+
+  chatMessages.push({ role: 'user', content: prompt });
+  if (clearInput) {
+    dom.chatInput.value = '';
+    dom.chatInput.style.height = 'auto';
+  }
+  chatStreaming = true;
+  chatStreamContent = '';
+  dom.chatSend.disabled = true;
+  renderChatMessages();
+  persistCurrentConversation();
+
+  // Build file context from active tab
+  const activeTab = tabs.find(t => t.id === activeTabId);
+  const fileContext = (activeTab && activeTab.path)
+    ? { name: activeTab.name, content: activeTab.content || dom.editorTextarea.value }
+    : null;
+
+  // Send only user/assistant messages (not error)
+  const apiMessages = chatMessages
+    .filter(m => m.role === 'user' || m.role === 'assistant')
+    .map(m => ({ role: m.role, content: m.content }));
+
+  window.mandy.sendChat(apiMessages, fileContext);
+  return true;
+}
+
+function sendChatMessage() {
+  const text = dom.chatInput.value.trim();
+  if (!text || chatStreaming) return;
+  submitChatPrompt(text, { clearInput: true });
+}
+
+function prefillChatInput(text) {
+  if (!dom.chatInput) return;
+  dom.chatInput.value = text || '';
+  dom.chatInput.style.height = 'auto';
+  dom.chatInput.style.height = Math.min(dom.chatInput.scrollHeight, 120) + 'px';
+  dom.chatInput.focus();
+  const end = dom.chatInput.value.length;
+  dom.chatInput.setSelectionRange(end, end);
+}
+
+function askAiAboutSpan(selectionText) {
+  if (!selectionText || !selectionText.trim()) return;
+  openChat();
+  if (dom.chatOverlay.classList.contains('hidden')) return;
+  prefillChatInput(buildAskAiSpanPrompt(selectionText));
+}
+
+function setupChatListeners() {
+  window.mandy.onChatChunk(delta => {
+    chatStreamContent += delta;
+    renderChatMessages();
+  });
+
+  window.mandy.onChatDone(() => {
+    if (chatStreamContent) {
+      chatMessages.push({ role: 'assistant', content: chatStreamContent });
+    }
+    chatStreaming = false;
+    chatStreamContent = '';
+    dom.chatSend.disabled = false;
+    persistCurrentConversation();
+    renderChatMessages();
+  });
+
+  window.mandy.onChatError(msg => {
+    chatMessages.push({ role: 'error', error: normalizeChatError(msg), content: msg });
+    chatStreaming = false;
+    chatStreamContent = '';
+    dom.chatSend.disabled = false;
+    renderChatMessages();
+  });
+}
+
+function setupChatResizer() {
+  const resizer = dom.chatResizer;
+  const panel = dom.chatPanel;
+  if (!resizer || !panel || resizer.dataset.bound === '1') return;
+  resizer.dataset.bound = '1';
+
+  function clampWidth(w) {
+    const minW = 320;
+    const maxW = Math.min(900, window.innerWidth - 40);
+    return Math.max(minW, Math.min(maxW, w));
+  }
+
+  function setChatWidth(w) {
+    document.documentElement.style.setProperty('--chat-w', clampWidth(w) + 'px');
+  }
+
+  resizer.addEventListener('mousedown', e => {
+    const startX = e.clientX;
+    const startW = panel.offsetWidth;
+    resizer.classList.add('dragging');
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+
+    function onMove(ev) {
+      // Chat is right-anchored, so moving left increases width.
+      const w = clampWidth(startW - (ev.clientX - startX));
+      setChatWidth(w);
+    }
+    function onUp() {
+      resizer.classList.remove('dragging');
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      cfg.chatWidth = clampWidth(panel.offsetWidth || 420);
+      autosave();
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+    }
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+    e.preventDefault();
+  });
+
+  window.addEventListener('resize', () => {
+    const currentW = parseFloat(getComputedStyle(panel).width) || cfg.chatWidth || 420;
+    setChatWidth(currentW);
+  });
+}
+
 // ---- Settings ----
 function openSettings() {
   dom.settingsOverlay.classList.remove('hidden');
@@ -2000,6 +2712,69 @@ function openSettings() {
 
 function closeSettings() {
   dom.settingsOverlay.classList.add('hidden');
+  closeAiModelMenu();
+}
+
+function setAiModelActiveOption() {
+  const current = ($('#cfg-ai-model')?.value || '').trim().toLowerCase();
+  $$('#cfg-ai-model-menu .model-option').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.model.toLowerCase() === current);
+  });
+}
+
+function openAiModelMenu() {
+  const menu = $('#cfg-ai-model-menu');
+  const toggle = $('#cfg-ai-model-toggle');
+  if (!menu || !toggle) return;
+  setAiModelActiveOption();
+  menu.classList.remove('hidden');
+  toggle.setAttribute('aria-expanded', 'true');
+}
+
+function closeAiModelMenu() {
+  const menu = $('#cfg-ai-model-menu');
+  const toggle = $('#cfg-ai-model-toggle');
+  if (!menu || !toggle) return;
+  menu.classList.add('hidden');
+  toggle.setAttribute('aria-expanded', 'false');
+}
+
+function setupAiModelPicker() {
+  const picker = $('#ai-model-picker');
+  const input = $('#cfg-ai-model');
+  const toggle = $('#cfg-ai-model-toggle');
+  const menu = $('#cfg-ai-model-menu');
+  if (!picker || !input || !toggle || !menu || picker.dataset.bound === '1') return;
+  picker.dataset.bound = '1';
+
+  input.addEventListener('focus', openAiModelMenu);
+  input.addEventListener('click', openAiModelMenu);
+  input.addEventListener('input', setAiModelActiveOption);
+  input.addEventListener('keydown', e => {
+    if (e.key === 'ArrowDown') { e.preventDefault(); openAiModelMenu(); }
+    if (e.key === 'Escape') { e.preventDefault(); closeAiModelMenu(); }
+  });
+
+  toggle.onclick = () => {
+    if (menu.classList.contains('hidden')) openAiModelMenu();
+    else closeAiModelMenu();
+    input.focus();
+  };
+
+  menu.addEventListener('mousedown', e => e.preventDefault());
+  menu.addEventListener('click', e => {
+    const option = e.target.closest('.model-option');
+    if (!option) return;
+    input.value = option.dataset.model || '';
+    setAiModelActiveOption();
+    closeAiModelMenu();
+    autosave();
+    input.focus();
+  });
+
+  document.addEventListener('mousedown', e => {
+    if (!picker.contains(e.target)) closeAiModelMenu();
+  });
 }
 
 function syncSettingsUI() {
@@ -2019,6 +2794,11 @@ function syncSettingsUI() {
   $('#cfg-word-count').checked = cfg.showWordCount !== false;
   $('#cfg-smooth-scroll').checked = cfg.smoothScroll !== false;
   $('#cfg-remember-scroll-pos').checked = cfg.rememberScrollPos !== false;
+  // AI settings
+  $('#cfg-ai-api-url').value = cfg.aiApiUrl || 'https://api.openai.com';
+  $('#cfg-ai-api-key').value = cfg.aiApiKey || '';
+  $('#cfg-ai-model').value = cfg.aiModel || 'gpt-4o-mini';
+  setAiModelActiveOption();
 }
 
 function applyConfig() {
@@ -2038,12 +2818,15 @@ function applyConfig() {
   dom.mdContent.style.fontSize = fs;
   dom.mdContent.style.lineHeight = lh;
   dom.scrollContainer.classList.toggle('no-smooth', !cfg.smoothScroll);
+  const chatW = Math.max(320, Math.min(Math.min(900, window.innerWidth - 40), cfg.chatWidth || 420));
+  document.documentElement.style.setProperty('--chat-w', chatW + 'px');
   applyHljsTheme(cfg.codeTheme || 'github-dark'); // fire-and-forget, CSS injection
 }
 
 // Auto-save: debounced, called after every control change
 let _saveTimer;
 function autosave() {
+  const settingsOpen = !dom.settingsOverlay.classList.contains('hidden');
   cfg.theme        = $('button.theme-btn.active')?.dataset.theme    || cfg.theme;
   cfg.fontFamily   = $('button.font-btn.active')?.dataset.font      || cfg.fontFamily;
   cfg.palette      = $('button.palette-btn.active')?.dataset.palette || cfg.palette || 'amber';
@@ -2053,6 +2836,19 @@ function autosave() {
   cfg.contentWidth = parseInt($('#cfg-content-width').value)         ?? 80;
   cfg.codeTheme    = $('#cfg-code-theme').value;
   cfg.liveReload   = liveReload;
+  const aiUrlVal   = $('#cfg-ai-api-url')?.value ?? '';
+  const aiKeyVal   = $('#cfg-ai-api-key')?.value ?? '';
+  const aiModelVal = $('#cfg-ai-model')?.value ?? '';
+
+  // Prevent unrelated autosaves from wiping AI settings before Settings is opened.
+  if (settingsOpen || aiUrlVal) cfg.aiApiUrl = aiUrlVal || 'https://api.openai.com';
+  else cfg.aiApiUrl = cfg.aiApiUrl || 'https://api.openai.com';
+
+  if (settingsOpen || aiKeyVal) cfg.aiApiKey = aiKeyVal;
+  else cfg.aiApiKey = cfg.aiApiKey || '';
+
+  if (settingsOpen || aiModelVal) cfg.aiModel = aiModelVal || 'gpt-4o-mini';
+  else cfg.aiModel = cfg.aiModel || 'gpt-4o-mini';
 
   clearTimeout(_saveTimer);
   _saveTimer = setTimeout(() => window.mandy.saveConfig(cfg), 400);
@@ -2188,8 +2984,12 @@ function setupKeyboard() {
     if (mod && e.key === 'e' && !e.shiftKey) { e.preventDefault(); setViewMode(viewMode === 'edit' ? 'preview' : 'edit'); }
     if (mod && e.shiftKey && e.key.toLowerCase() === 'e') { e.preventDefault(); setViewMode('split'); }
     if (mod && e.shiftKey && e.key.toLowerCase() === 'p') { e.preventDefault(); setViewMode('preview'); }
+    if (mod && e.shiftKey && e.key.toLowerCase() === 'a') { e.preventDefault(); openChat(); }
 
     if (e.key === 'Escape') {
+      const cfgOverlay = $('#chat-config-overlay');
+      if (cfgOverlay && !cfgOverlay.classList.contains('hidden')) { cfgOverlay.classList.add('hidden'); return; }
+      if (!dom.chatOverlay.classList.contains('hidden')) { closeChat(); return; }
       if (!dom.settingsOverlay.classList.contains('hidden')) { closeSettings(); return; }
       if (!dom.findBar.classList.contains('hidden')) { closeFind(); return; }
       if (inEditor && viewMode === 'edit') { setViewMode('preview'); return; }
@@ -2287,7 +3087,7 @@ async function init() {
   // Settings
   $('#settings-close').onclick = closeSettings;
   $('#settings-reset').onclick = () => {
-    cfg = { theme:'dark', fontFamily:'sans', fontSize:18, lineHeight:1.8, contentWidth:80, codeTheme:'github-dark', showWordCount:true, smoothScroll:true, zoom:1, liveReload:true, palette:'amber', language:'en' };
+    cfg = { theme:'dark', fontFamily:'sans', fontSize:18, lineHeight:1.8, contentWidth:80, codeTheme:'github-dark', showWordCount:true, smoothScroll:true, zoom:1, liveReload:true, palette:'amber', language:'en', aiApiUrl:'https://api.openai.com', aiApiKey:'', aiModel:'gpt-4o-mini', chatWidth:420, chatHistories:{} };
     liveReload = false;
     setLanguage('en');
     applyConfig();
@@ -2366,6 +3166,66 @@ async function init() {
     setLanguage(this.value);
     autosave();
   };
+
+  // AI settings — save on change
+  setupAiModelPicker();
+  $('#cfg-ai-api-url').onchange = autosave;
+  $('#cfg-ai-api-key').onchange = autosave;
+  $('#cfg-ai-model').onchange   = autosave;
+
+  // Chat config prompt
+  const chatConfigOverlay = $('#chat-config-overlay');
+  chatConfigOverlay.onclick = e => { if (e.target === chatConfigOverlay) chatConfigOverlay.classList.add('hidden'); };
+  $('#chat-config-go').onclick = () => {
+    chatConfigOverlay.classList.add('hidden');
+    openAiSettingsFromChat();
+  };
+
+  // Chat panel
+  updateChatButtonState();
+  $('#btn-chat').onclick = () => openChat();
+  $('#chat-open-settings').onclick = () => {
+    openAiSettingsFromChat();
+  };
+  $('#chat-close').onclick = closeChat;
+  $('#chat-clear').onclick = clearChat;
+  dom.chatHistoryBtn.onclick = e => {
+    e.stopPropagation();
+    toggleChatHistoryMenu();
+  };
+  dom.chatOverlay.onclick = e => { if (e.target === dom.chatOverlay) closeChat(); };
+  document.addEventListener('mousedown', e => {
+    if (!dom.chatOverlay.classList.contains('hidden') &&
+        !dom.chatHistoryMenu.classList.contains('hidden') &&
+        !dom.chatHistoryMenu.contains(e.target) &&
+        !dom.chatHistoryBtn.contains(e.target)) {
+      closeChatHistoryMenu();
+    }
+  });
+  dom.chatSend.onclick = sendChatMessage;
+  dom.chatInput.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChatMessage(); }
+  });
+  dom.chatInput.addEventListener('input', () => {
+    dom.chatInput.style.height = 'auto';
+    dom.chatInput.style.height = Math.min(dom.chatInput.scrollHeight, 120) + 'px';
+  });
+  dom.chatMessages.addEventListener('click', e => {
+    const settingsBtn = e.target.closest('.chat-error-action');
+    if (settingsBtn) {
+      e.preventDefault();
+      openAiSettingsFromChat();
+      return;
+    }
+    const a = e.target.closest('a[href]');
+    if (!a) return;
+    const href = a.getAttribute('href');
+    if (!href) return;
+    e.preventDefault();
+    window.mandy.handleLink(href, currentFile);
+  });
+  setupChatResizer();
+  setupChatListeners();
 
   // View mode buttons
   $$('.view-mode-btn').forEach(btn => btn.onclick = () => setViewMode(btn.dataset.mode));
@@ -2524,3 +3384,4 @@ async function init() {
 }
 
 init().catch(console.error);
+
