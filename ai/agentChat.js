@@ -805,16 +805,21 @@ class AgentChatService {
             .find(m => m && m.role === 'user' && typeof m.content === 'string')?.content || '';
         const policy = buildFilePolicy(fileContext || {}, {requestWriteApproval, onFileMutated, latestUserPrompt});
         const baseURL = normalizeBaseUrl(apiUrl);
+        const allowBuiltInWebSearch = shouldUseResponses(baseURL);
         const provider = new OpenAIProvider({
             apiKey,
             baseURL,
             useResponses: shouldUseResponses(baseURL),
         });
+        const fileTools = buildFileTools(agents, policy);
+        const webTools = (allowBuiltInWebSearch && typeof agents.webSearchTool === 'function')
+            ? [agents.webSearchTool({searchContextSize: 'medium'})]
+            : [];
 
         const agent = new Agent({
             name: 'MandyFileAgent',
             model,
-            tools: buildFileTools(agents, policy),
+            tools: [...fileTools, ...webTools],
             instructions: [
                 'You are Mandy assistant embedded in a desktop markdown/text editor.',
                 'Primary role: help users read, write, and edit markdown/text files accurately.',
@@ -845,6 +850,8 @@ class AgentChatService {
                 'Before final response, run a final review against the user request and confirm nothing requested was missed.',
                 'For delete requests, use delete_text_file and only report deletion when tool output confirms deleted=true.',
                 'If you cannot complete a whole-file transformation in one pass (length/turn limits), explicitly continue in additional passes and report what remains.',
+                'When local files are insufficient and current/external information is needed, use web_search.',
+                'When you use web_search, include source links in your response.',
                 'When reporting edits, use exact tool output fields (replacements, changedLineCount, remainingMatches) and do not guess.',
                 'If a path is outside allowed roots or extension policy, explain clearly and ask for a permitted path.',
             ].join(' '),
