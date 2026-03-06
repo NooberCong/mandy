@@ -2,11 +2,9 @@ const {app, BrowserWindow, ipcMain, dialog, Menu, shell, nativeTheme} = require(
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
-const https = require('https');
-const http = require('http');
-const {URL} = require('url');
 const {marked} = require('marked');
 const hljs = require('highlight.js');
+const {AgentChatService} = require('./ai/agentChat');
 
 // ---- Markdown setup — use default marked renderer, post-process code blocks ----
 marked.use({gfm: true, breaks: false});
@@ -16,6 +14,26 @@ const COPY_BTN =
     `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">` +
     `<rect x="9" y="9" width="13" height="13" rx="2"/>` +
     `<path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Copy</button>`;
+
+function escapeHtml(text) {
+    return String(text || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+}
+
+function isPlainTextPreviewFile(filePath) {
+    const ext = path.extname(String(filePath || '')).toLowerCase();
+    return ext === '.txt' || ext === '.text' || ext === '.log';
+}
+
+function renderDocumentHtml(content, filePath) {
+    if (isPlainTextPreviewFile(filePath)) {
+        // Preserve literal newlines and spacing for plain text files.
+        return `<pre class="plain-text-preview">${escapeHtml(content)}</pre>`;
+    }
+    return resolveLocalPaths(enhanceCodeBlocks(marked.parse(content)), filePath);
+}
 
 // Rewrite relative image src attributes to absolute file:// URLs so Electron can
 // load them regardless of where renderer/index.html lives on disk.
@@ -152,6 +170,20 @@ function addRecent(filePath) {
     recents.unshift({path: filePath, name: path.basename(filePath), opened: Date.now()});
     if (recents.length > 20) recents = recents.slice(0, 20);
     saveRecents(recents);
+    return recents;
+}
+
+function removeRecentEntry(filePath) {
+    let recents = loadRecents().filter(r => r.path !== filePath);
+    saveRecents(recents);
+    try {
+        const cfg = loadConfig();
+        if (cfg.chatHistories && cfg.chatHistories[filePath]) {
+            delete cfg.chatHistories[filePath];
+            saveConfig(cfg);
+        }
+    } catch {
+    }
     return recents;
 }
 
@@ -463,10 +495,10 @@ function suggestChatContextFiles(query, currentFilePath) {
     }
 }
 
-function openFile(filePath) {
+function openFile(filePath, opts = {}) {
     try {
         const content = fs.readFileSync(filePath, 'utf8');
-        const html = resolveLocalPaths(enhanceCodeBlocks(marked.parse(content)), filePath);
+        const html = renderDocumentHtml(content, filePath);
         const recents = addRecent(filePath);
         mainWindow.webContents.send('file-opened', {
             path: filePath,
@@ -474,10 +506,14 @@ function openFile(filePath) {
             content,
             html,
             recents,
+            gotoLine: Number(opts.gotoLine) > 0 ? Number(opts.gotoLine) : null,
+            gotoColumn: Number(opts.gotoColumn) > 0 ? Number(opts.gotoColumn) : null,
         });
         if (process.platform === 'darwin') mainWindow.setRepresentedFilename(filePath);
+        return {ok: true, path: filePath, recents};
     } catch (err) {
-        dialog.showErrorBox('Error', `Could not open file:\n${err.message}`);
+        if (!opts.silentErrorDialog) dialog.showErrorBox('Error', `Could not open file:\n${err.message}`);
+        return {ok: false, path: filePath, error: err.message, code: err.code || ''};
     }
 }
 
@@ -499,57 +535,55 @@ ipcMain.handle('read-file', (_, filePath) => {
         return {content: null, error: e.message};
     }
 });
-ipcMain.handle('read-folder', (_, folderPath) => {
+ipcMain.handle('read-folder', (_, rootFolderPath, targetFolderPath) => {
     const MD_RE = /\.(md|markdown|mdx|txt)$/i;
+    const rootPath = path.resolve(String(rootFolderPath || ''));
+    const targetPath = path.resolve(String(targetFolderPath || rootPath));
+    const rootCmp = process.platform === 'win32' ? rootPath.toLowerCase() : rootPath;
+    const targetCmp = process.platform === 'win32' ? targetPath.toLowerCase() : targetPath;
 
-    function scanDir(dirPath) {
-        let entries;
-        try {
-            entries = fs.readdirSync(dirPath, {withFileTypes: true});
-        } catch {
-            return null;
-        }
-
-        const dirs = [];
-        const files = [];
-
-        for (const e of entries) {
-            if (e.name.startsWith('.')) continue;          // skip hidden
-            if (e.isDirectory()) {
-                const subtree = scanDir(path.join(dirPath, e.name));
-                if (subtree) dirs.push(subtree);
-            } else if (e.isFile()) {
-                files.push({
-                    type: 'file',
-                    name: e.name,
-                    path: path.join(dirPath, e.name),
-                    markdown: MD_RE.test(e.name)
-                });
-            }
-        }
-
-        dirs.sort((a, b) => a.name.localeCompare(b.name));
-        files.sort((a, b) => a.name.localeCompare(b.name));
-
-        return {type: 'dir', name: path.basename(dirPath), path: dirPath, children: [...dirs, ...files]};
+    // Only allow browsing inside the selected root folder for this request.
+    if (targetCmp !== rootCmp && !targetCmp.startsWith(rootCmp + path.sep)) {
+        return [];
     }
 
-    const tree = scanDir(folderPath);
-    return tree ? tree.children : [];                  // return root children, not the root itself
+    let entries;
+    try {
+        entries = fs.readdirSync(targetPath, {withFileTypes: true});
+    } catch {
+        return [];
+    }
+
+    const dirs = [];
+    const files = [];
+    for (const e of entries) {
+        if (e.name.startsWith('.')) continue; // skip hidden
+        const itemPath = path.join(targetPath, e.name);
+        if (e.isDirectory()) {
+            dirs.push({
+                type: 'dir',
+                name: e.name,
+                path: itemPath
+            });
+            continue;
+        }
+        if (e.isFile()) {
+            files.push({
+                type: 'file',
+                name: e.name,
+                path: itemPath,
+                markdown: MD_RE.test(e.name)
+            });
+        }
+    }
+
+    dirs.sort((a, b) => a.name.localeCompare(b.name));
+    files.sort((a, b) => a.name.localeCompare(b.name));
+    return [...dirs, ...files];
 });
 ipcMain.handle('add-recent', (_, filePath) => addRecent(filePath));
 ipcMain.handle('remove-recent', (_, filePath) => {
-    let recents = loadRecents().filter(r => r.path !== filePath);
-    saveRecents(recents);
-    try {
-        const cfg = loadConfig();
-        if (cfg.chatHistories && cfg.chatHistories[filePath]) {
-            delete cfg.chatHistories[filePath];
-            saveConfig(cfg);
-        }
-    } catch {
-    }
-    return recents;
+    return removeRecentEntry(filePath);
 });
 ipcMain.handle('get-scroll-position', (_, filePath) => getScrollPosition(filePath));
 ipcMain.handle('set-scroll-position', (_, filePath, previewScroll, editorScroll) => {
@@ -580,7 +614,32 @@ ipcMain.handle('window-maximize', () => {
     if (mainWindow.isMaximized()) mainWindow.restore(); else mainWindow.maximize();
 });
 ipcMain.handle('window-close', () => mainWindow.close());
-ipcMain.handle('open-file-from-path', (_, filePath) => openFile(filePath));
+ipcMain.handle('open-file-from-path', async (_, filePath, opts = {}) => {
+    const res = openFile(filePath, {silentErrorDialog: true});
+    if (res?.ok) return res;
+
+    const fromRecent = Boolean(opts && opts.fromRecent);
+    const missing = String(res?.code || '').toUpperCase() === 'ENOENT';
+    if (fromRecent && missing) {
+        const base = path.basename(String(filePath || ''));
+        const prompt = await dialog.showMessageBox(mainWindow, {
+            type: 'warning',
+            buttons: ['Remove from Recents', 'Cancel'],
+            defaultId: 0,
+            cancelId: 1,
+            message: `File not found: "${base}"`,
+            detail: 'This item points to a file that no longer exists.',
+        });
+        if (prompt.response === 0) {
+            const recents = removeRecentEntry(filePath);
+            return {...res, missing: true, removedRecent: true, recents};
+        }
+        return {...res, missing: true, removedRecent: false};
+    }
+
+    dialog.showErrorBox('Error', `Could not open file:\n${res?.error || 'Unknown error'}`);
+    return res;
+});
 ipcMain.handle('show-in-folder', (_, filePath) => shell.showItemInFolder(filePath));
 ipcMain.handle('delete-item', async (_, filePath) => {
     const name = path.basename(filePath);
@@ -605,6 +664,60 @@ ipcMain.handle('create-folder', (_, parentDir, name) => {
     fs.mkdirSync(full, {recursive: true});
     return full;
 });
+ipcMain.handle('rename-item', (_, itemPath, newName) => {
+    try {
+        const oldPath = String(itemPath || '');
+        const nextName = String(newName || '').trim();
+        if (!oldPath || !nextName) return {ok: false, error: 'invalid'};
+        const parent = path.dirname(oldPath);
+        const newPath = path.join(parent, nextName);
+        if (oldPath === newPath) return {ok: true, path: oldPath};
+        if (fs.existsSync(newPath)) return {ok: false, error: 'exists'};
+        fs.renameSync(oldPath, newPath);
+
+        const norm = p => process.platform === 'win32' ? String(p || '').toLowerCase() : String(p || '');
+        const oldNorm = norm(oldPath);
+        const oldPrefixNorm = oldNorm + path.sep;
+        const remapPath = (p) => {
+            const src = String(p || '');
+            const srcNorm = norm(src);
+            if (srcNorm === oldNorm) return newPath;
+            if (srcNorm.startsWith(oldPrefixNorm)) return newPath + src.slice(oldPath.length);
+            return src;
+        };
+
+        // Keep recents valid after file/folder renames.
+        const recents = loadRecents().map(r => {
+            const mapped = remapPath(r.path);
+            if (mapped === r.path) return r;
+            return {...r, path: mapped, name: path.basename(mapped)};
+        });
+        saveRecents(recents);
+
+        // Keep per-doc chat history keys aligned with new path.
+        const cfg = loadConfig();
+        if (cfg.chatHistories && typeof cfg.chatHistories === 'object') {
+            const nextHistories = {};
+            Object.keys(cfg.chatHistories).forEach(k => {
+                nextHistories[remapPath(k)] = cfg.chatHistories[k];
+            });
+            cfg.chatHistories = nextHistories;
+            saveConfig(cfg);
+        }
+
+        // Keep scroll positions aligned too.
+        const scroll = loadScrollPositions();
+        const nextScroll = {};
+        Object.keys(scroll || {}).forEach(k => {
+            nextScroll[remapPath(k)] = scroll[k];
+        });
+        saveScrollPositions(nextScroll);
+
+        return {ok: true, path: newPath};
+    } catch (e) {
+        return {ok: false, error: e.message || 'rename-failed'};
+    }
+});
 ipcMain.handle('get-platform', () => process.platform);
 ipcMain.handle('print', () => mainWindow.webContents.print({silent: false, printBackground: true}));
 ipcMain.handle('get-home', () => os.homedir());
@@ -615,19 +728,30 @@ ipcMain.handle('get-pending-file', () => {
 });
 
 ipcMain.handle('handle-link', (_, href, currentFilePath) => {
-    // Any scheme URL (http, https, mailto, ftp, …) → system default browser/handler
-    if (/^[a-z][a-z0-9+\-.]*:/i.test(href)) {
-        shell.openExternal(href);
+    const rawHref = decodeURIComponent(String(href || ''));
+    const isWindowsAbsPath = /^[A-Za-z]:[\\/]/.test(rawHref);
+
+    // Any scheme URL (http, https, mailto, ftp, ...) -> system default browser/handler
+    if (!isWindowsAbsPath && /^[a-z][a-z0-9+\-.]*:/i.test(rawHref)) {
+        shell.openExternal(rawHref);
         return;
     }
+
+    // Support markdown links with line suffix: path/to/file.mdx:81 or file.md:81:5
+    const mdLineMatch = rawHref.match(/^(.*\.(?:md|markdown|mdx)):(\d+)(?::(\d+))?$/i);
+    const linkPath = mdLineMatch ? mdLineMatch[1] : rawHref;
+    const gotoLine = mdLineMatch ? Number(mdLineMatch[2]) : null;
+    const gotoColumn = mdLineMatch && mdLineMatch[3] ? Number(mdLineMatch[3]) : null;
+
     // Resolve relative path against the directory of the current file
     const base = currentFilePath ? path.dirname(currentFilePath) : app.getPath('home');
-    const resolved = path.resolve(base, decodeURIComponent(href));
-    // Markdown file → open in a new tab inside Mandy
+    const resolved = path.resolve(base, linkPath);
+
+    // Markdown file -> open in a new tab inside Mandy
     if (/\.(md|markdown|mdx)$/i.test(resolved)) {
-        openFile(resolved);
+        openFile(resolved, {gotoLine, gotoColumn});
     } else {
-        // Any other file → system default application
+        // Any other file -> system default application
         shell.openPath(resolved);
     }
 });
@@ -668,9 +792,9 @@ ipcMain.handle('show-unsaved-dialog', async (_, dlg) => {
 
 ipcMain.handle('render-markdown', (_, content, filePath) => {
     try {
-        return resolveLocalPaths(enhanceCodeBlocks(marked.parse(content)), filePath);
+        return renderDocumentHtml(content, filePath);
     } catch (e) {
-        return `<pre>${content.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</pre>`;
+        return `<pre>${escapeHtml(content)}</pre>`;
     }
 });
 
@@ -685,116 +809,132 @@ ipcMain.handle('get-hljs-theme-css', (_, theme) => {
     }
 });
 
-// ---- AI Chat (OpenAI-compatible streaming) ----
-let activeChatRequest = null;
+// ---- AI Chat (OpenAI Agents SDK) ----
+const agentChatService = new AgentChatService();
+let chatPermissionSeq = 0;
+const pendingChatPermissions = new Map();
+const queuedChatPermissions = [];
+let activeChatPermissionId = null;
+let sessionAutoApprove = false;
 
-ipcMain.handle('ai-chat', (_, messages, fileContext) => {
-    const cfg = loadConfig();
-    const apiUrl = (cfg.aiApiUrl || '').replace(/\/+$/, '');
-    const apiKey = cfg.aiApiKey || '';
-    const model = cfg.aiModel || 'gpt-4o-mini';
-
-    if (!apiUrl || !apiKey) {
-        mainWindow.webContents.send('ai-chat-error', 'Please configure AI API URL and API Key in Settings → AI Chat.');
-        return;
-    }
-
-    const systemParts = ['You are a helpful AI assistant integrated into Mandy, a Markdown reader and editor.'];
-    const contextFiles = [];
-    if (fileContext && Array.isArray(fileContext.files)) {
-        fileContext.files.forEach(f => {
-            if (f && f.name && typeof f.content === 'string') contextFiles.push(f);
-        });
-    } else if (fileContext && fileContext.name && typeof fileContext.content === 'string') {
-        contextFiles.push(fileContext);
-    }
-    if (contextFiles.length > 0) {
-        const primaryPath = fileContext?.primaryPath || contextFiles[0]?.path || '';
-        const primary = contextFiles.find(f => f.path && f.path === primaryPath) || contextFiles[0];
-        systemParts.push(
-            `Primary file "${primary.name}" content:\n\n${primary.content}`
-        );
-        const extras = contextFiles.filter(f => f !== primary);
-        extras.forEach((f, idx) => {
-            systemParts.push(`Additional context file ${idx + 1} "${f.name}" content:\n\n${f.content}`);
-        });
-    }
-
-    const body = JSON.stringify({
-        model,
-        messages: [
-            {role: 'system', content: systemParts.join('\n\n')},
-            ...messages,
-        ],
-        stream: true,
-    });
-
-    let endpoint;
-    try {
-        endpoint = new URL(apiUrl + '/v1/chat/completions');
-    } catch {
-        mainWindow.webContents.send('ai-chat-error', 'Invalid API URL.');
-        return;
-    }
-
-    const transport = endpoint.protocol === 'https:' ? https : http;
-    const req = transport.request(endpoint, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${apiKey}`,
-        },
-    }, res => {
-        if (res.statusCode !== 200) {
-            let errBody = '';
-            res.on('data', c => errBody += c);
-            res.on('end', () => {
-                let msg = `API error ${res.statusCode}`;
-                try { msg = JSON.parse(errBody).error?.message || msg; } catch {}
-                mainWindow.webContents.send('ai-chat-error', msg);
-            });
-            return;
+function pumpChatPermissionQueue() {
+    if (activeChatPermissionId) return;
+    while (queuedChatPermissions.length > 0) {
+        const nextId = queuedChatPermissions[0];
+        const pending = pendingChatPermissions.get(nextId);
+        if (!pending) {
+            queuedChatPermissions.shift();
+            continue;
         }
+        activeChatPermissionId = nextId;
+        if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('ai-chat-permission-request', {
+                id: nextId,
+                details: pending.details || {},
+            });
+        }
+        return;
+    }
+}
 
-        let buffer = '';
-        res.on('data', chunk => {
-            buffer += chunk.toString();
-            const lines = buffer.split('\n');
-            buffer = lines.pop(); // keep incomplete line
-            for (const line of lines) {
-                const trimmed = line.trim();
-                if (!trimmed || !trimmed.startsWith('data:')) continue;
-                const data = trimmed.slice(5).trim();
-                if (data === '[DONE]') {
-                    mainWindow.webContents.send('ai-chat-done');
-                    return;
+function resolveChatPermission(id, approved, reason = 'user', opts = {}) {
+    const pending = pendingChatPermissions.get(id);
+    if (!pending) return false;
+    pendingChatPermissions.delete(id);
+    const queueIdx = queuedChatPermissions.indexOf(id);
+    if (queueIdx >= 0) queuedChatPermissions.splice(queueIdx, 1);
+    if (activeChatPermissionId === id) activeChatPermissionId = null;
+    clearTimeout(pending.timer);
+    try {
+        pending.resolve(Boolean(approved));
+    } catch {
+    }
+    if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('ai-chat-permission-resolved', {
+            id,
+            approved: Boolean(approved),
+            reason,
+        });
+    }
+    if (!opts.skipPump) pumpChatPermissionQueue();
+    return true;
+}
+
+function rejectAllPendingChatPermissions(reason = 'cancelled') {
+    activeChatPermissionId = null;
+    queuedChatPermissions.length = 0;
+    const ids = Array.from(pendingChatPermissions.keys());
+    ids.forEach(id => resolveChatPermission(id, false, reason, {skipPump: true}));
+}
+
+ipcMain.handle('ai-chat', async (_, messages, fileContext) => {
+    const cfg = loadConfig();
+    try {
+        await agentChatService.send({
+            config: cfg,
+            messages,
+            fileContext,
+            requestWriteApproval: async details => {
+                if (sessionAutoApprove === true) {
+                    const id = `perm_${Date.now()}_${++chatPermissionSeq}`;
+                    if (mainWindow && !mainWindow.isDestroyed()) {
+                        mainWindow.webContents.send('ai-chat-permission-request', {
+                            id,
+                            details: details || {},
+                        });
+                        mainWindow.webContents.send('ai-chat-permission-resolved', {
+                            id,
+                            approved: true,
+                            reason: 'auto',
+                        });
+                    }
+                    return true;
                 }
-                try {
-                    const parsed = JSON.parse(data);
-                    const delta = parsed.choices?.[0]?.delta?.content;
-                    if (delta) mainWindow.webContents.send('ai-chat-chunk', delta);
-                } catch { /* skip malformed */ }
-            }
+                const id = `perm_${Date.now()}_${++chatPermissionSeq}`;
+                return new Promise(resolve => {
+                    const timer = setTimeout(() => {
+                        resolveChatPermission(id, false, 'timeout');
+                    }, 120000);
+                    pendingChatPermissions.set(id, {resolve, timer, details: details || {}});
+                    queuedChatPermissions.push(id);
+                    pumpChatPermissionQueue();
+                });
+            },
+            onFileMutated: filePath => {
+                mainWindow.webContents.send('agent-file-mutated', {path: filePath});
+            },
+            onChunk: delta => mainWindow.webContents.send('ai-chat-chunk', delta),
+            onDone: () => {
+                rejectAllPendingChatPermissions('cancelled');
+                mainWindow.webContents.send('ai-chat-done');
+            },
+            onError: msg => {
+                rejectAllPendingChatPermissions('cancelled');
+                mainWindow.webContents.send('ai-chat-error', msg);
+            },
         });
-        res.on('end', () => {
-            mainWindow.webContents.send('ai-chat-done');
-        });
-    });
-
-    req.on('error', err => {
-        mainWindow.webContents.send('ai-chat-error', err.message);
-    });
-
-    req.write(body);
-    req.end();
-    activeChatRequest = req;
+    } catch (err) {
+        rejectAllPendingChatPermissions('cancelled');
+        mainWindow.webContents.send('ai-chat-error', err?.message || String(err));
+    }
 });
 
 ipcMain.handle('ai-chat-cancel', () => {
-    if (activeChatRequest) {
-        try { activeChatRequest.destroy(); } catch {}
-        activeChatRequest = null;
-    }
+    agentChatService.cancel();
+    rejectAllPendingChatPermissions('cancelled');
+});
+
+ipcMain.handle('ai-chat-permission-response', (_, id, approved) => {
+    return {ok: resolveChatPermission(String(id || ''), Boolean(approved), 'user')};
+});
+
+ipcMain.handle('ai-chat-set-session-auto-approve', (_, enabled) => {
+    sessionAutoApprove = Boolean(enabled);
+    return {ok: true, enabled: sessionAutoApprove};
+});
+
+ipcMain.handle('ai-chat-get-session-auto-approve', () => {
+    return {ok: true, enabled: sessionAutoApprove};
 });
 
 // File watcher
@@ -811,7 +951,7 @@ ipcMain.handle('watch-file', (_, filePath) => {
         watcher = fs.watch(filePath, () => {
             try {
                 const content = fs.readFileSync(filePath, 'utf8');
-                const html = resolveLocalPaths(enhanceCodeBlocks(marked.parse(content)), filePath);
+                const html = renderDocumentHtml(content, filePath);
                 mainWindow.webContents.send('file-changed', {content, html});
             } catch {
             }
@@ -846,4 +986,5 @@ app.on('open-file', (e, filePath) => {
     e.preventDefault();
     if (mainWindow) openFile(filePath);
 });
+
 

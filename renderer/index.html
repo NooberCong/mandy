@@ -166,6 +166,20 @@
             <div class="sidebar-header">
                 <span id="folder-name">No folder</span>
                 <span class="sidebar-header-actions">
+                    <button id="btn-new-folder-file" title="New file" data-i18n-title="tt.newFile">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                            <polyline points="14 2 14 8 20 8"/>
+                            <line x1="12" y1="18" x2="12" y2="12"/>
+                            <line x1="9" y1="15" x2="15" y2="15"/>
+                        </svg>
+                    </button>
+                    <button id="btn-parent-folder" title="Go to parent folder" data-i18n-title="tt.parentFolder">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M12 18V6"></path>
+                            <path d="M7 11l5-5 5 5"></path>
+                        </svg>
+                    </button>
                     <button id="btn-refresh-folder" title="Refresh folder tree" data-i18n-title="tt.refreshFolder">
                         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                             <path d="M23 4v6h-6"></path>
@@ -188,6 +202,7 @@
                     <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
                 </svg>
                 <p data-i18n="empty.folder">No folder open</p>
+                <button id="btn-open-file-dir" class="hidden" data-i18n="btn.openFileDir">Open File Directory</button>
                 <button data-i18n="btn.openFolder" onclick="document.getElementById('btn-open-folder').click()">Open
                     folder
                 </button>
@@ -675,6 +690,7 @@
         <div id="chat-header">
             <h2 data-i18n="chat.title">AI Chat</h2>
             <div id="chat-header-actions">
+                <button id="chat-auto-approve-toggle" title="Enable auto-approve for this session" data-i18n-title="chat.autoApproveTurnOn"></button>
                 <button id="chat-history" title="History" data-i18n-title="tt.chatHistory">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <path d="M3 3v5h5"></path>
@@ -757,6 +773,8 @@
     <button id="ecm-find" data-i18n="cm.findDoc">Find in Document</button>
     <button id="ecm-ask-ai" data-i18n="cm.askAiSpan">Ask AI About Selection</button>
 </div>
+
+<div id="tree-context-menu" class="hidden"></div>
 
 <!-- Preview context menu -->
 <div id="preview-context-menu" class="hidden">

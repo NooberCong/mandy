@@ -16,14 +16,22 @@ let hasUnsavedChanges = false;
 let previewUpdateTimer = null;
 
 // ---- Chat state ----
-let chatMessages = [];   // { role: 'user'|'assistant', content: string }[]
+let chatMessages = [];   // { role: 'user'|'assistant'|'error'|'approval', content?: string }[]
 let chatStreaming = false;
 let chatStreamContent = '';
 let activeConversationByDoc = {};
 let chatContextFilesByDoc = {};
 let chatSuggestReqId = 0;
 let chatPathSuggestIndex = -1;
+let chatSessionAutoApprove = false;
+let chatQueuedPrompts = [];
+let chatPaused = false;
+let chatPromptHistory = [];
+let chatPromptHistoryIndex = -1;
+let chatPromptDraft = '';
 let draggedTabId = null;
+const chatApprovalExpanded = new Set();
+let chatSessionDocKey = null;
 const chatMarkdownCache = new Map();
 const chatMarkdownInFlight = new Set();
 
@@ -44,11 +52,20 @@ function t(key) {
   return (LOCALES[currentLang] || LOCALES.en)[key] ?? LOCALES.en[key] ?? key;
 }
 
+function tf(key, vars = {}) {
+  let out = String(t(key));
+  Object.keys(vars || {}).forEach(k => {
+    out = out.replaceAll(`{${k}}`, String(vars[k]));
+  });
+  return out;
+}
+
 function applyTranslations() {
   $$('[data-i18n]').forEach(el => { el.textContent = t(el.dataset.i18n); });
   $$('[data-i18n-placeholder]').forEach(el => { el.placeholder = t(el.dataset.i18nPlaceholder); });
   $$('[data-i18n-title]').forEach(el => { el.title = t(el.dataset.i18nTitle); });
   $$('[data-i18n-aria-label]').forEach(el => { el.setAttribute('aria-label', t(el.dataset.i18nAriaLabel)); });
+  syncChatInputPlaceholder();
 }
 
 function refreshDynamicText() {
@@ -67,6 +84,42 @@ function updateRefreshFolderButtonState() {
   dom.refreshFolderBtn.disabled = !loadedFolderPath;
 }
 
+function updateNewFolderFileButtonState() {
+  if (!dom.newFolderFileBtn) return;
+  dom.newFolderFileBtn.disabled = !loadedFolderPath;
+}
+
+function getParentFolderPath(folderPath) {
+  if (!folderPath) return null;
+  const normalized = folderPath.replace(/[\\/]+$/, '');
+  if (!normalized) return null;
+  if (/^\\\\[^\\]+\\[^\\]+$/.test(normalized)) return null;
+  const parent = normalized.replace(/[\\/][^\\/]+$/, '');
+  if (!parent || parent === normalized) return null;
+  if (/^[A-Za-z]:$/.test(parent)) return `${parent}\\`;
+  return parent;
+}
+
+function updateParentFolderButtonState() {
+  if (!dom.parentFolderBtn) return;
+  dom.parentFolderBtn.disabled = !getParentFolderPath(loadedFolderPath);
+}
+
+function updateFolderEmptyActions() {
+  if (!dom.openFileDirBtn) return;
+  const activeTab = tabs.find(t => t.id === activeTabId);
+  const canOpenFileDir = !loadedFolderPath && !!activeTab?.path;
+  dom.openFileDirBtn.classList.toggle('hidden', !canOpenFileDir);
+  dom.openFileDirBtn.disabled = !canOpenFileDir;
+}
+
+function syncChatInputPlaceholder() {
+  if (!dom.chatInput) return;
+  dom.chatInput.placeholder = chatPaused
+    ? t('chat.agentPausedHint')
+    : t('chat.placeholder');
+}
+
 function setLanguage(lang) {
   currentLang = LOCALES[lang] ? lang : 'en';
   document.documentElement.lang = currentLang;
@@ -75,6 +128,7 @@ function setLanguage(lang) {
   renderChatMessages();
   renderChatHistoryList();
   renderChatContextFiles();
+  renderChatAutoApproveToggle();
 }
 
 // ---- DOM refs ----
@@ -94,7 +148,10 @@ const dom = {
   recentsEmpty: $('#recents-empty'),
   folderList: $('#folder-list'),
   folderEmpty: $('#folder-empty'),
+  openFileDirBtn: $('#btn-open-file-dir'),
   folderName: $('#folder-name'),
+  newFolderFileBtn: $('#btn-new-folder-file'),
+  parentFolderBtn: $('#btn-parent-folder'),
   refreshFolderBtn: $('#btn-refresh-folder'),
   tocList: $('#toc-list'),
   tocEmpty: $('#toc-empty'),
@@ -129,6 +186,7 @@ const dom = {
   chatPathSuggest: $('#chat-path-suggest'),
   chatPathSuggestList: $('#chat-path-suggest-list'),
   chatHistoryBtn: $('#chat-history'),
+  chatAutoApproveToggle: $('#chat-auto-approve-toggle'),
   chatHistoryMenu: $('#chat-history-menu'),
   chatHistoryList: $('#chat-history-list'),
 };
@@ -484,6 +542,7 @@ function activateTab(tabId) {
   renderTabBar();
   updateChatButtonState();
   updateChatFileBadge();
+  updateFolderEmptyActions();
 
   // Mark active file in sidebar
   $$('.file-item').forEach(el => {
@@ -787,6 +846,7 @@ async function closeTab(tabId) {
     $$('.recent-item').forEach(el => el.classList.remove('active'));
     renderTabBar();
     updateChatButtonState();
+    updateFolderEmptyActions();
     return;
   }
 
@@ -808,6 +868,7 @@ async function saveFile() {
     dom.docFilename.textContent = name;
     dom.statusFile.textContent  = currentFile;
     if (activeTab) { activeTab.path = currentFile; activeTab.name = name; }
+    updateChatButtonState();
     const recents = await window.mandy.addRecent(currentFile);
     updateRecentsList(recents);
     updateWelcomeRecents(recents);
@@ -835,6 +896,7 @@ async function saveFile() {
     dom.docStats.words.textContent = `${words.toLocaleString()} ${t('words')}`;
     dom.docStats.read.textContent  = `~${Math.max(1, Math.round(words / 200))} ${t('minRead')}`;
     dom.docStats.chars.textContent = `${content.length.toLocaleString()} ${t('chars')}`;
+    updateChatButtonState();
   } else {
     dom.statusPos.textContent = t('saveFailed');
     setTimeout(() => updateScrollPos(), 3000);
@@ -1189,12 +1251,15 @@ function newFile() {
 
 // ---- File opening ----
 async function openDocument(data) {
-  const { path: filePath, name, content, html, recents } = data;
+  const { path: filePath, name, content, html, recents, gotoLine, gotoColumn } = data;
+  const targetLine = Number(gotoLine) > 0 ? Number(gotoLine) : null;
+  const targetColumn = Number(gotoColumn) > 0 ? Number(gotoColumn) : 1;
 
   // If file is already open in a tab, just switch to it
   const existing = tabs.find(t => t.path === filePath);
   if (existing) {
     activateTab(existing.id);
+    if (targetLine) jumpToEditorPosition(targetLine, targetColumn);
     if (recents) updateRecentsList(recents);
     return;
   }
@@ -1223,8 +1288,40 @@ async function openDocument(data) {
   }
 
   activateTab(tab.id);
+  if (targetLine) jumpToEditorPosition(targetLine, targetColumn);
   if (recents) updateRecentsList(recents);
   if (liveReload) window.mandy.watchFile(filePath);
+}
+
+function jumpToEditorPosition(line, column = 1) {
+  const text = dom.editorTextarea.value || '';
+  const lines = text.split('\n');
+  const targetLine = Math.max(1, Math.min(Number(line) || 1, Math.max(1, lines.length)));
+  const targetColumn = Math.max(1, Number(column) || 1);
+
+  let pos = 0;
+  for (let i = 0; i < targetLine - 1; i += 1) pos += lines[i].length + 1;
+  const lineLen = (lines[targetLine - 1] || '').length;
+  pos += Math.min(lineLen, targetColumn - 1);
+
+  if (viewMode === 'preview') {
+    const maxScroll = Math.max(0, dom.scrollContainer.scrollHeight - dom.scrollContainer.clientHeight);
+    const ratio = (targetLine - 1) / Math.max(1, lines.length - 1);
+    dom.scrollContainer.scrollTop = Math.round(maxScroll * ratio);
+    updateProgress();
+    updateScrollPos();
+    return;
+  }
+
+  dom.editorTextarea.focus({ preventScroll: true });
+  dom.editorTextarea.setSelectionRange(pos, pos);
+
+  const lineHeight = parseFloat(getComputedStyle(dom.editorTextarea).lineHeight) || 24;
+  const top = Math.max(0, (targetLine - 1) * lineHeight - dom.editorTextarea.clientHeight * 0.35);
+  dom.editorTextarea.scrollTop = top;
+  syncEditorToPreview();
+  updateEditorStatus();
+  updateToolbarState();
 }
 
 function countWords(text) {
@@ -1322,10 +1419,18 @@ function updateRecentsList(recents) {
   }
   dom.recentsEmpty.classList.add('hidden');
   recents.forEach(r => {
-    const item = createFileItem(r, () => window.mandy.openFileFromPath(r.path));
+    const item = createFileItem(r, () => openRecentFileFromList(r.path));
     dom.recentsList.appendChild(item);
   });
   updateWelcomeRecents(recents);
+}
+
+async function openRecentFileFromList(filePath) {
+  const res = await window.mandy.openFileFromPath(filePath, {fromRecent: true});
+  if (res?.removedRecent && Array.isArray(res.recents)) {
+    purgeDocConversationHistory(filePath, { clearVisible: true });
+    updateRecentsList(res.recents);
+  }
 }
 
 function updateWelcomeRecents(recents) {
@@ -1342,7 +1447,7 @@ function updateWelcomeRecents(recents) {
       <span class="wri-name">${escapeHtml(r.name)}</span>
       <span class="wri-path">${escapeHtml(r.path)}</span>
     `;
-    el.onclick = () => window.mandy.openFileFromPath(r.path);
+    el.onclick = () => openRecentFileFromList(r.path);
     dom.welcomeRecents.appendChild(el);
   });
 }
@@ -1402,31 +1507,163 @@ function escapeHtml(str) {
   return (str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
+function normalizeTreePath(filePath) {
+  return String(filePath || '')
+    .replace(/\\/g, '/')
+    .replace(/\/+$/, '')
+    .toLowerCase();
+}
+
+function remapPathForRename(oldPath, newPath, inputPath) {
+  const source = String(inputPath || '');
+  const oldNorm = normalizeTreePath(oldPath);
+  const sourceNorm = normalizeTreePath(source);
+  if (!oldNorm || !sourceNorm) return source;
+  if (sourceNorm === oldNorm) return newPath;
+  if (sourceNorm.startsWith(oldNorm + '/')) return newPath + source.slice(String(oldPath || '').length);
+  return source;
+}
+
+function remapRenamePathInLocalState(oldPath, newPath) {
+  ensureChatHistories();
+  const nextHistories = {};
+  Object.keys(cfg.chatHistories || {}).forEach(k => {
+    nextHistories[remapPathForRename(oldPath, newPath, k)] = cfg.chatHistories[k];
+  });
+  cfg.chatHistories = nextHistories;
+
+  const remapMap = (src) => {
+    const out = {};
+    Object.keys(src || {}).forEach(k => {
+      out[remapPathForRename(oldPath, newPath, k)] = src[k];
+    });
+    return out;
+  };
+  activeConversationByDoc = remapMap(activeConversationByDoc);
+  chatContextFilesByDoc = remapMap(chatContextFilesByDoc);
+}
+
+function isTreePathWithin(rootPath, candidatePath) {
+  const rootNorm = normalizeTreePath(rootPath);
+  const candidateNorm = normalizeTreePath(candidatePath);
+  return candidateNorm === rootNorm || candidateNorm.startsWith(rootNorm + '/');
+}
+
+function getExpandedTreePaths() {
+  return [...$$('.tree-dir.open', dom.folderList)].map(el => el.dataset.path).filter(Boolean);
+}
+
+function splitTreeRelativeParts(rootPath, fullPath) {
+  const rootRaw = String(rootPath || '').replace(/[\\/]+$/, '');
+  const fullRaw = String(fullPath || '').replace(/[\\/]+$/, '');
+  if (!isTreePathWithin(rootRaw, fullRaw)) return [];
+  const relative = fullRaw.slice(rootRaw.length).replace(/^[\\/]+/, '');
+  return relative ? relative.split(/[\\/]+/).filter(Boolean) : [];
+}
+
+function findTreeDirByPath(filePath) {
+  const targetNorm = normalizeTreePath(filePath);
+  return $$('.tree-dir', dom.folderList).find(el => normalizeTreePath(el.dataset.path) === targetNorm) || null;
+}
+
+async function expandTreePath(filePath) {
+  if (!loadedFolderPath || !filePath || !isTreePathWithin(loadedFolderPath, filePath)) return;
+
+  const rootRaw = String(loadedFolderPath || '').replace(/[\\/]+$/, '');
+  const parts = splitTreeRelativeParts(rootRaw, filePath);
+  let cursor = rootRaw;
+
+  for (const part of parts) {
+    cursor = /[\\/]$/.test(cursor) ? `${cursor}${part}` : `${cursor}\\${part}`;
+    const dirEl = findTreeDirByPath(cursor);
+    if (!dirEl) return;
+    dirEl.classList.add('open');
+    const childGroup = [...dirEl.children].find(el => el.classList?.contains('tree-group'));
+    if (!childGroup) return;
+    const depth = Number(dirEl.dataset.depth || 0);
+    await loadDirChildren(loadedFolderPath, dirEl.dataset.path, childGroup, depth);
+  }
+}
+
+async function reopenFolderTreePreserving(extraPaths = []) {
+  const restorePaths = [...new Set([...getExpandedTreePaths(), ...(extraPaths || [])].filter(Boolean))];
+  try {
+    await openFolder(loadedFolderPath);
+    restorePaths.sort((a, b) => splitTreeRelativeParts(loadedFolderPath, a).length - splitTreeRelativeParts(loadedFolderPath, b).length);
+    for (const p of restorePaths) {
+      try { await expandTreePath(p); } catch {}
+    }
+  } catch {
+    // Last resort: ensure tree is still refreshed.
+    await openFolder(loadedFolderPath);
+  }
+}
+
+async function refreshExpandedFolderForPath(filePath) {
+  if (!loadedFolderPath || !filePath) return;
+  const parentDir = dirnameOf(filePath);
+  if (!isTreePathWithin(loadedFolderPath, parentDir)) return;
+
+  const rootNorm = normalizeTreePath(loadedFolderPath);
+  const parentNorm = normalizeTreePath(parentDir);
+
+  // Parent is working-directory root: refresh root list while preserving opened nodes.
+  if (parentNorm === rootNorm) {
+    await reopenFolderTreePreserving(getExpandedTreePaths());
+    return;
+  }
+
+  const dirEl = findTreeDirByPath(parentDir);
+  if (!dirEl || !dirEl.classList.contains('open')) return;
+  const childGroup = [...dirEl.children].find(el => el.classList?.contains('tree-group'));
+  if (!childGroup) return;
+
+  childGroup.innerHTML = '';
+  childGroup.dataset.loaded = '0';
+  childGroup.dataset.loading = '0';
+  const depth = Number(dirEl.dataset.depth || 0);
+  await loadDirChildren(loadedFolderPath, parentDir, childGroup, depth);
+}
+
 // ---- Folder tree ----
 async function openFolder(folderPath) {
   const tree = await window.mandy.readFolder(folderPath);
   dom.folderList.innerHTML = '';
+  const normalizedFolderPath = String(folderPath || '').replace(/[\\/]+$/, '');
   loadedFolderPath = folderPath;
-  loadedFolderName = folderPath.split(/[/\\]/).pop();
+  loadedFolderName = normalizedFolderPath.split(/[/\\]/).pop() || folderPath;
   dom.folderName.textContent = loadedFolderName;
   updateRefreshFolderButtonState();
+  updateNewFolderFileButtonState();
+  updateParentFolderButtonState();
 
   if (!tree || tree.length === 0) {
     dom.folderEmpty.classList.remove('hidden');
+    updateFolderEmptyActions();
     return;
   }
   dom.folderEmpty.classList.add('hidden');
   dom.folderList.appendChild(buildTree(tree, 0));
   switchTab('folder');
+  updateFolderEmptyActions();
 }
 
 async function refreshFolderTree() {
   if (!loadedFolderPath) return;
-  const expanded = new Set([...$$('.tree-dir.open', dom.folderList)].map(el => el.dataset.path));
   await openFolder(loadedFolderPath);
-  $$('.tree-dir', dom.folderList).forEach(el => {
-    if (expanded.has(el.dataset.path)) el.classList.add('open');
-  });
+}
+
+function startInlineCreateInWorkingDirectory(type) {
+  if (!loadedFolderPath) return;
+  dom.folderEmpty.classList.add('hidden');
+
+  let rootGroup = dom.folderList.querySelector(':scope > .tree-group');
+  if (!rootGroup) {
+    rootGroup = document.createElement('div');
+    rootGroup.className = 'tree-group';
+    dom.folderList.appendChild(rootGroup);
+  }
+  startInlineCreate(type, loadedFolderPath, rootGroup);
 }
 
 function buildTree(nodes, depth) {
@@ -1443,10 +1680,193 @@ function buildTree(nodes, depth) {
   return group;
 }
 
+function basenameOf(filePath) {
+  const normalized = String(filePath || '').replace(/[\\/]+$/, '');
+  return normalized.split(/[/\\]/).pop() || String(filePath || '');
+}
+
+function dirnameOf(filePath) {
+  const normalized = String(filePath || '').replace(/[\\/]+$/, '');
+  return normalized.replace(/[\\/][^\\/]+$/, '') || normalized;
+}
+
+function updateOpenTabsForPathRename(oldPath, newPath) {
+  const oldNorm = String(oldPath || '').replace(/\\/g, '/');
+  const newNorm = String(newPath || '').replace(/\\/g, '/');
+  if (!oldNorm || !newNorm) return;
+
+  let anyChanged = false;
+  const oldLower = oldNorm.toLowerCase();
+  const oldPrefixLower = `${oldLower}/`;
+
+  tabs.forEach(tab => {
+    if (!tab.path) return;
+    const tabNorm = String(tab.path).replace(/\\/g, '/');
+    const tabLower = tabNorm.toLowerCase();
+
+    if (tabLower === oldLower) {
+      tab.path = newPath;
+      tab.name = basenameOf(newPath);
+      anyChanged = true;
+      return;
+    }
+    if (tabLower.startsWith(oldPrefixLower)) {
+      const suffix = tab.path.slice(oldPath.length);
+      tab.path = newPath + suffix;
+      tab.name = basenameOf(tab.path);
+      anyChanged = true;
+    }
+  });
+
+  if (currentFile) {
+    const curNorm = String(currentFile).replace(/\\/g, '/');
+    const curLower = curNorm.toLowerCase();
+    if (curLower === oldLower) currentFile = newPath;
+    else if (curLower.startsWith(oldPrefixLower)) currentFile = newPath + currentFile.slice(oldPath.length);
+  }
+
+  if (anyChanged) {
+    renderTabBar();
+    updateTitle(activeTab());
+  }
+}
+
+function startInlineRename(labelEl, itemPathOrGetter, onRenamed, options = {}) {
+  if (!labelEl || labelEl.dataset.renaming === '1') return;
+  const resolvePath = () => (typeof itemPathOrGetter === 'function' ? itemPathOrGetter() : itemPathOrGetter);
+  const initialPath = resolvePath();
+  if (!initialPath) return;
+  const currentName = basenameOf(initialPath);
+  const input = document.createElement('input');
+  input.className = 'tree-inline-input tree-inline-rename';
+  input.type = 'text';
+  input.spellcheck = false;
+  input.value = currentName;
+
+  labelEl.dataset.renaming = '1';
+  labelEl.style.display = 'none';
+  labelEl.insertAdjacentElement('afterend', input);
+  input.focus();
+  if (options.selectStem === true) {
+    const dot = currentName.lastIndexOf('.');
+    const end = dot > 0 ? dot : currentName.length;
+    input.setSelectionRange(0, end);
+  } else {
+    input.select();
+  }
+
+  let committed = false;
+  const cleanup = () => {
+    if (input.parentNode) input.remove();
+    labelEl.style.display = '';
+    delete labelEl.dataset.renaming;
+  };
+  const commit = async () => {
+    if (committed) return;
+    const nextName = String(input.value || '').trim();
+    if (!nextName || nextName === currentName) {
+      committed = true;
+      cleanup();
+      return;
+    }
+
+    committed = true;
+    const oldPath = resolvePath();
+    const res = await window.mandy.renameItem(oldPath, nextName);
+    if (!res?.ok || !res?.path) {
+      committed = false;
+      input.focus();
+      input.select();
+      return;
+    }
+    labelEl.textContent = basenameOf(res.path);
+    labelEl.title = basenameOf(res.path);
+    cleanup();
+    remapRenamePathInLocalState(oldPath, res.path);
+    try {
+      const latestRecents = await window.mandy.getRecents();
+      updateRecentsList(latestRecents || []);
+    } catch {}
+    if (typeof onRenamed === 'function') onRenamed(res.path, oldPath);
+    updateOpenTabsForPathRename(oldPath, res.path);
+    try {
+      await reopenFolderTreePreserving([dirnameOf(res.path)]);
+    } catch {
+      await openFolder(loadedFolderPath);
+    }
+  };
+
+  input.addEventListener('keydown', e => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      commit();
+    }
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      committed = true;
+      cleanup();
+    }
+  });
+  input.addEventListener('blur', () => { if (!committed) commit(); });
+}
+
+function showTreeContextMenu(x, y, items) {
+  const menu = $('#tree-context-menu');
+  if (!menu) return;
+  menu.innerHTML = '';
+
+  items.filter(Boolean).forEach(item => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.textContent = item.label;
+    btn.addEventListener('click', async () => {
+      menu.classList.add('hidden');
+      await item.onClick();
+    });
+    menu.appendChild(btn);
+  });
+
+  menu.classList.remove('hidden');
+  const mw = menu.offsetWidth;
+  const mh = menu.offsetHeight;
+  menu.style.left = Math.min(x, window.innerWidth - mw - 4) + 'px';
+  menu.style.top = Math.min(y, window.innerHeight - mh - 4) + 'px';
+}
+
+function showWorkingDirContextMenu(x, y) {
+  if (!loadedFolderPath) return;
+  showTreeContextMenu(x, y, [
+    {
+      label: t('tt.newFile'),
+      onClick: async () => startInlineCreateInWorkingDirectory('file'),
+    },
+    {
+      label: t('tt.newFolder'),
+      onClick: async () => startInlineCreateInWorkingDirectory('folder'),
+    }
+  ]);
+}
+
+async function loadDirChildren(rootPath, nodePath, targetGroup, depth) {
+  if (!targetGroup || targetGroup.dataset.loading === '1' || targetGroup.dataset.loaded === '1') return;
+  targetGroup.dataset.loading = '1';
+  try {
+    const children = await window.mandy.readFolder(rootPath, nodePath);
+    targetGroup.innerHTML = '';
+    if (Array.isArray(children) && children.length) {
+      targetGroup.appendChild(buildTree(children, depth + 1));
+    }
+    targetGroup.dataset.loaded = '1';
+  } finally {
+    targetGroup.dataset.loading = '0';
+  }
+}
+
 function buildDirNode(node, depth) {
   const wrap = document.createElement('div');
   wrap.className = 'tree-dir';
   wrap.dataset.path = node.path;
+  wrap.dataset.depth = String(depth);
 
   const header = document.createElement('div');
   header.className = 'tree-dir-header';
@@ -1459,56 +1879,71 @@ function buildDirNode(node, depth) {
       <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
     </svg>
     <span class="tree-dir-name" title="${escapeHtml(node.name)}">${escapeHtml(node.name)}</span>
-    <span class="tree-dir-actions">
-      <button class="tree-action-btn" data-action="new-file" title="${t('tt.newFile')}">
-        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
-          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>
-          <line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/>
-        </svg>
-      </button>
-      <button class="tree-action-btn" data-action="new-folder" title="${t('tt.newFolder')}">
-        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
-          <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
-          <line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/>
-        </svg>
-      </button>
-      <button class="tree-action-btn" data-action="delete-folder" title="${t('tt.delete')}">
-        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
-          <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/>
-          <path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/>
-        </svg>
-      </button>
-    </span>
   `;
 
-  const children = buildTree(node.children, depth + 1);
+  const children = document.createElement('div');
+  children.className = 'tree-group';
+  children.dataset.loaded = '0';
+  children.dataset.loading = '0';
 
-  header.querySelector('[data-action="new-file"]').addEventListener('click', e => {
-    e.stopPropagation();
-    wrap.classList.add('open');
-    startInlineCreate('file', node.path, children);
-  });
-  header.querySelector('[data-action="new-folder"]').addEventListener('click', e => {
-    e.stopPropagation();
-    wrap.classList.add('open');
-    startInlineCreate('folder', node.path, children);
-  });
-  header.querySelector('[data-action="delete-folder"]').addEventListener('click', async e => {
-    e.stopPropagation();
-    const deleted = await window.mandy.deleteItem(node.path);
-    if (!deleted) return;
-    const norm = node.path.replace(/\\/g, '/');
-    for (const tab of [...tabs]) {
-      if (tab.path && tab.path.replace(/\\/g, '/').startsWith(norm + '/')) {
-        await closeTab(tab.id);
-      }
+  header.addEventListener('click', async e => {
+    const willOpen = !wrap.classList.contains('open');
+    wrap.classList.toggle('open');
+    if (willOpen) {
+      await loadDirChildren(loadedFolderPath, node.path, children, depth);
     }
-    const expanded = new Set([...$$('.tree-dir.open', dom.folderList)].map(el => el.dataset.path));
-    await openFolder(loadedFolderPath);
-    $$('.tree-dir', dom.folderList).forEach(el => { if (expanded.has(el.dataset.path)) el.classList.add('open'); });
   });
-  header.addEventListener('click', e => {
-    if (!e.target.closest('.tree-dir-actions')) wrap.classList.toggle('open');
+  header.addEventListener('contextmenu', e => {
+    e.preventDefault();
+    e.stopPropagation();
+    showTreeContextMenu(e.clientX, e.clientY, [
+      {
+        label: t('tt.setWorkingDir'),
+        onClick: async () => openFolder(node.path),
+      },
+      {
+        label: t('tt.newFile'),
+        onClick: async () => {
+          wrap.classList.add('open');
+          await loadDirChildren(loadedFolderPath, node.path, children, depth);
+          startInlineCreate('file', node.path, children);
+        }
+      },
+      {
+        label: t('tt.newFolder'),
+        onClick: async () => {
+          wrap.classList.add('open');
+          await loadDirChildren(loadedFolderPath, node.path, children, depth);
+          startInlineCreate('folder', node.path, children);
+        }
+      },
+      {
+        label: t('tt.rename'),
+        onClick: async () => startInlineRename(
+          header.querySelector('.tree-dir-name'),
+          () => wrap.dataset.path,
+          (newPath) => {
+            wrap.dataset.path = newPath;
+            node.path = newPath;
+          }
+        ),
+      },
+      {
+        label: t('tt.delete'),
+        onClick: async () => {
+          const dirPath = wrap.dataset.path;
+          const deleted = await window.mandy.deleteItem(dirPath);
+          if (!deleted) return;
+          const norm = dirPath.replace(/\\/g, '/');
+          for (const tab of [...tabs]) {
+            if (tab.path && tab.path.replace(/\\/g, '/').startsWith(norm + '/')) {
+              await closeTab(tab.id);
+            }
+          }
+          await reopenFolderTreePreserving();
+        }
+      }
+    ]);
   });
 
   wrap.appendChild(header);
@@ -1549,10 +1984,7 @@ function startInlineCreate(type, parentPath, groupEl) {
       const fullPath = type === 'file'
         ? await window.mandy.createFile(parentPath, name)
         : await window.mandy.createFolder(parentPath, name);
-      const expanded = new Set([...$$('.tree-dir.open', dom.folderList)].map(el => el.dataset.path));
-      expanded.add(parentPath); // ensure the parent stays open
-      await openFolder(loadedFolderPath);
-      $$('.tree-dir', dom.folderList).forEach(el => { if (expanded.has(el.dataset.path)) el.classList.add('open'); });
+      await reopenFolderTreePreserving([parentPath]);
       if (type === 'file') window.mandy.openFileFromPath(fullPath);
     } catch (err) {
       committed = false;
@@ -1572,7 +2004,8 @@ function buildFileNode(node, depth) {
   div.className = 'file-item tree-file' + (node.markdown ? '' : ' tree-file-other');
   div.dataset.path = node.path;
   if (node.path === currentFile) div.classList.add('active');
-  div.style.paddingLeft = (depth * 14 + 8) + 'px';
+  // Align file icons with folder icons (folder rows reserve arrow space before icon).
+  div.style.paddingLeft = (depth * 14 + 24) + 'px';
   div.innerHTML = `
     <svg class="file-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
       <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
@@ -1581,32 +2014,45 @@ function buildFileNode(node, depth) {
     <div class="file-info">
       <div class="file-name" title="${escapeHtml(node.name)}">${escapeHtml(node.name)}</div>
     </div>
-    <button class="file-remove" title="${t('tt.delete')}">
-      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
-        <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/>
-        <path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/>
-      </svg>
-    </button>
   `;
-  div.querySelector('.file-remove').addEventListener('click', async e => {
-    e.stopPropagation();
-    const deleted = await window.mandy.deleteItem(node.path);
-    if (!deleted) return;
-    // Close any open tab for this file
-    const tab = tabs.find(t => t.path === node.path);
-    if (tab) await closeTab(tab.id);
-    // Remove from recents
-    const updatedRecents = await window.mandy.removeRecent(node.path);
-    purgeDocConversationHistory(node.path, { clearVisible: true });
-    updateRecentsList(updatedRecents);
-    // Refresh tree preserving expanded state
-    const expanded = new Set([...$$('.tree-dir.open', dom.folderList)].map(el => el.dataset.path));
-    await openFolder(loadedFolderPath);
-    $$('.tree-dir', dom.folderList).forEach(el => { if (expanded.has(el.dataset.path)) el.classList.add('open'); });
+  div.addEventListener('click', () => {
+    if (div.querySelector('.tree-inline-rename')) return;
+    const filePath = div.dataset.path;
+    if (node.markdown) window.mandy.openFileFromPath(filePath);
+    else window.mandy.handleLink(filePath, null);
   });
-  div.onclick = () => node.markdown
-    ? window.mandy.openFileFromPath(node.path)
-    : window.mandy.handleLink(node.path, null);
+  div.addEventListener('contextmenu', e => {
+    e.preventDefault();
+    e.stopPropagation();
+    showTreeContextMenu(e.clientX, e.clientY, [
+      {
+        label: t('tt.rename'),
+        onClick: async () => startInlineRename(
+          div.querySelector('.file-name'),
+          () => div.dataset.path,
+          (newPath) => {
+            div.dataset.path = newPath;
+            node.path = newPath;
+          },
+          {selectStem: true}
+        ),
+      },
+      {
+        label: t('tt.delete'),
+        onClick: async () => {
+          const filePath = div.dataset.path;
+          const deleted = await window.mandy.deleteItem(filePath);
+          if (!deleted) return;
+          const tab = tabs.find(t => t.path === filePath);
+          if (tab) await closeTab(tab.id);
+          const updatedRecents = await window.mandy.removeRecent(filePath);
+          purgeDocConversationHistory(filePath, { clearVisible: true });
+          updateRecentsList(updatedRecents);
+          await reopenFolderTreePreserving();
+        }
+      }
+    ]);
+  });
   return div;
 }
 
@@ -1864,6 +2310,21 @@ function htmlToMd(node) {
   document.addEventListener('keydown', e => {
     if (e.key === 'Escape' && !menu.classList.contains('hidden')) { hideMenu(); e.stopPropagation(); }
   }, true);
+})();
+
+(function initTreeContextMenu() {
+  const menu = document.getElementById('tree-context-menu');
+  if (!menu) return;
+
+  function hideMenu() { menu.classList.add('hidden'); }
+
+  document.addEventListener('mousedown', e => {
+    if (!menu.classList.contains('hidden') && !menu.contains(e.target)) hideMenu();
+  });
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && !menu.classList.contains('hidden')) { hideMenu(); e.stopPropagation(); }
+  }, true);
+  window.addEventListener('blur', hideMenu);
 })();
 
 // ---- Link hover preview (status bar) ----
@@ -2200,12 +2661,28 @@ function persistCurrentConversation() {
   renderChatHistoryList();
 }
 
+function restoreChatPromptHistoryFromMessages(messages) {
+  const out = [];
+  const list = Array.isArray(messages) ? messages : [];
+  for (const m of list) {
+    if (!m || m.role !== 'user') continue;
+    const v = String(m.content || '').trim();
+    if (!v) continue;
+    if (out[out.length - 1] !== v) out.push(v);
+  }
+  chatPromptHistory = out.slice(-100);
+  chatPromptHistoryIndex = -1;
+  chatPromptDraft = '';
+}
+
 function loadConversation(conversationId, docKey = getChatDocKey()) {
   const list = getDocConversations(docKey);
   const convo = list.find(c => c.id === conversationId);
   if (!convo) return false;
   activeConversationByDoc[docKey] = convo.id;
+  chatSessionDocKey = docKey;
   chatMessages = Array.isArray(convo.messages) ? convo.messages.map(m => ({ role: m.role, content: m.content })) : [];
+  restoreChatPromptHistoryFromMessages(chatMessages);
   setChatContextFiles(Array.isArray(convo.contextFiles) ? convo.contextFiles : [], docKey);
   chatStreaming = false;
   chatStreamContent = '';
@@ -2233,10 +2710,14 @@ function loadLatestConversation(docKey = getChatDocKey()) {
   const list = getDocConversations(docKey);
   if (list.length === 0) {
     activeConversationByDoc[docKey] = null;
+    chatSessionDocKey = docKey;
     chatMessages = [];
     setChatContextFiles([], docKey);
     chatStreaming = false;
     chatStreamContent = '';
+    chatPromptHistory = [];
+    chatPromptHistoryIndex = -1;
+    chatPromptDraft = '';
     renderChatMessages();
     renderChatHistoryList();
     return;
@@ -2319,7 +2800,16 @@ function openChat() {
   }
   dom.chatOverlay.classList.remove('hidden');
   dom.body.classList.add('chat-open');
-  loadLatestConversation();
+  refreshChatSessionAutoApproveState();
+  const docKey = getChatDocKey();
+  const hasRuntimeState = chatMessages.length > 0 || chatStreaming || !!chatStreamContent || chatPaused;
+  const preserveRuntime = hasRuntimeState && chatSessionDocKey === docKey;
+  if (preserveRuntime) {
+    renderChatMessages();
+    renderChatHistoryList();
+  } else {
+    loadLatestConversation(docKey);
+  }
   updateChatFileBadge();
   renderChatContextFiles();
   requestAnimationFrame(() => {
@@ -2336,11 +2826,16 @@ function closeChat() {
 }
 
 function clearChat() {
-  activeConversationByDoc[getChatDocKey()] = null;
+  const docKey = getChatDocKey();
+  activeConversationByDoc[docKey] = null;
+  chatSessionDocKey = docKey;
   chatMessages = [];
+  chatApprovalExpanded.clear();
   setChatContextFiles([]);
   chatStreaming = false;
   chatStreamContent = '';
+  chatPaused = false;
+  syncChatInputPlaceholder();
   renderChatMessages();
   renderChatHistoryList();
   closeChatHistoryMenu();
@@ -2351,7 +2846,173 @@ function updateChatFileBadge() {
   renderChatContextFiles();
 }
 
+function renderChatAutoApproveToggle() {
+  if (!dom.chatAutoApproveToggle) return;
+  const enabled = chatSessionAutoApprove === true;
+  dom.chatAutoApproveToggle.classList.toggle('active', enabled);
+  dom.chatAutoApproveToggle.textContent = enabled ? t('chat.autoApproveOn') : t('chat.autoApproveOff');
+  const title = enabled ? t('chat.autoApproveTurnOff') : t('chat.autoApproveTurnOn');
+  dom.chatAutoApproveToggle.title = title;
+  dom.chatAutoApproveToggle.setAttribute('aria-label', title);
+}
+
+function buildApprovalPreviewLines(rawText) {
+  const source = String(rawText || '').replace(/\r\n/g, '\n').trim();
+  if (!source) return [];
+  return source.split('\n').map(line => line.replace(/\t/g, '    '));
+}
+
+function buildChatApprovalDiffRows(msg) {
+  const details = msg?.details || {};
+  const actionRaw = String(details.action || 'write').toLowerCase();
+  if (Array.isArray(details.diffRows) && details.diffRows.length > 0) {
+    return details.diffRows
+      .map(r => ({
+        kind: r && (r.kind === 'del' || r.kind === 'meta') ? r.kind : 'add',
+        text: String(r?.text ?? ''),
+        oldLine: (() => {
+          const n = Number(r?.oldLine);
+          return Number.isInteger(n) && n > 0 ? n : null;
+        })(),
+        newLine: (() => {
+          const n = Number(r?.newLine);
+          return Number.isInteger(n) && n > 0 ? n : null;
+        })(),
+      }));
+  }
+  const rows = [];
+
+  if (actionRaw === 'edit') {
+    const beforeLines = buildApprovalPreviewLines(details.searchPreview);
+    const afterLines = buildApprovalPreviewLines(details.replacePreview);
+    beforeLines.forEach(line => rows.push({kind: 'del', text: line, oldLine: null, newLine: null}));
+    afterLines.forEach(line => rows.push({kind: 'add', text: line, oldLine: null, newLine: null}));
+  } else if (actionRaw === 'write' || actionRaw === 'append') {
+    const addLines = buildApprovalPreviewLines(details.contentPreview);
+    addLines.forEach(line => rows.push({kind: 'add', text: line, oldLine: null, newLine: null}));
+  }
+  return rows;
+}
+
+function renderChatApprovalDiff(msg) {
+  const rows = buildChatApprovalDiffRows(msg);
+  if (rows.length === 0) return '';
+  const approvalId = String(msg?.approvalId || '');
+  const expanded = approvalId ? chatApprovalExpanded.has(approvalId) : false;
+  const collapsedLimit = 6;
+  const hasOverflow = rows.length > collapsedLimit;
+  const visibleRows = expanded || !hasOverflow ? rows : rows.slice(0, collapsedLimit);
+  const hiddenCount = Math.max(0, rows.length - visibleRows.length);
+  const htmlRows = visibleRows.map(row => (
+    `<div class="chat-approval-diff-row ${row.kind === 'add' ? 'add' : (row.kind === 'meta' ? 'meta' : 'del')}">` +
+      `<span class="chat-approval-diff-line old">${row.oldLine ?? ''}</span>` +
+      `<span class="chat-approval-diff-line new">${row.newLine ?? ''}</span>` +
+      `<span class="chat-approval-diff-sign">${row.kind === 'meta' ? '' : (row.kind === 'add' ? '+' : '-')}</span>` +
+      `<code>${escapeHtml(row.text)}</code>` +
+    `</div>`
+  )).join('');
+
+  const toggle = hasOverflow
+    ? `<button type="button" class="chat-approval-diff-toggle" data-id="${escapeHtml(approvalId)}" data-expanded="${expanded ? '1' : '0'}">` +
+        `${escapeHtml(expanded ? t('chat.perm.showLess') : tf('chat.perm.showMoreLines', {count: hiddenCount}))}` +
+      `</button>`
+    : '';
+
+  return `<div class="chat-approval-diff">${htmlRows}</div>${toggle}`;
+}
+
+async function refreshChatSessionAutoApproveState() {
+  try {
+    const res = await window.mandy.getSessionAutoApprove();
+    if (typeof res?.enabled === 'boolean') chatSessionAutoApprove = res.enabled;
+  } catch {}
+  renderChatAutoApproveToggle();
+}
+
+function renderChatApprovalCard(msg) {
+  const details = msg?.details || {};
+  const actionRaw = String(details.action || 'write').toLowerCase();
+  const actionKey = `chat.perm.action.${actionRaw}`;
+  const actionLabel = escapeHtml(t(actionKey) === actionKey ? actionRaw : t(actionKey));
+  const filePath = escapeHtml(String(details.path || t('chat.perm.unknownPath')));
+  const status = String(msg?.status || 'pending').toLowerCase();
+  const canAct = status === 'pending';
+
+  let meta = '';
+  if (actionRaw === 'edit') {
+    const planned = Number(details.replacements);
+    if (Number.isFinite(planned) && planned > 0) {
+      meta = tf('chat.perm.metaReplaceCount', {count: planned});
+    } else if (details.searchPreview || details.replacePreview) {
+      meta = t('chat.perm.metaReplaceText');
+    }
+  } else {
+    const chars = Number(details.contentLength);
+    if (Number.isFinite(chars) && chars > 0) meta = tf('chat.perm.metaChars', {count: chars.toLocaleString()});
+  }
+  const diffPreviewHtml = renderChatApprovalDiff(msg);
+
+  const statusText = status === 'approved'
+    ? t('chat.perm.statusApproved')
+    : status === 'denied'
+      ? t('chat.perm.statusDenied')
+      : status === 'timeout'
+        ? t('chat.perm.statusTimeout')
+        : status === 'cancelled'
+          ? t('chat.perm.statusCancelled')
+          : status === 'processing'
+            ? t('chat.perm.statusProcessing')
+            : t('chat.perm.statusPending');
+  const statusClass = `status-${escapeHtml(status)}`;
+
+  const buttons = canAct
+    ? `<div class="chat-approval-actions">` +
+        `<button type="button" class="chat-approval-action allow-session" data-id="${escapeHtml(msg.approvalId || '')}" data-decision="allow-session">${escapeHtml(t('chat.perm.allowSession'))}</button>` +
+        `<button type="button" class="chat-approval-action allow" data-id="${escapeHtml(msg.approvalId || '')}" data-decision="allow">${escapeHtml(t('chat.perm.allow'))}</button>` +
+        `<button type="button" class="chat-approval-action deny" data-id="${escapeHtml(msg.approvalId || '')}" data-decision="deny">${escapeHtml(t('chat.perm.deny'))}</button>` +
+      `</div>`
+    : '';
+
+  return (
+    `<div class="chat-approval-card">` +
+      `<div class="chat-approval-head">` +
+        `<div class="chat-approval-head-left">` +
+          `<span class="chat-approval-icon" aria-hidden="true">` +
+            `<svg viewBox="0 0 24 24" fill="none"><path d="M12 3l7 3v5c0 5.2-3.4 8.7-7 10-3.6-1.3-7-4.8-7-10V6l7-3z" stroke="currentColor" stroke-width="1.7"/><path d="M9.2 12.3l1.9 1.9 3.7-3.9" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>` +
+          `</span>` +
+          `<span class="chat-approval-title">${escapeHtml(t('chat.perm.title'))}</span>` +
+        `</div>` +
+        `<span class="chat-approval-status ${statusClass}">${escapeHtml(statusText)}</span>` +
+      `</div>` +
+      `<div class="chat-approval-body">` +
+        `<div class="chat-approval-action-line"><span class="verb">${actionLabel}</span></div>` +
+        `<div class="chat-approval-path"><code>${filePath}</code></div>` +
+        (meta ? `<div class="chat-approval-meta">${escapeHtml(meta)}</div>` : '') +
+        diffPreviewHtml +
+      `</div>` +
+      buttons +
+    `</div>`
+  );
+}
+
+function renderChatMutationCard(msg) {
+  const filePath = String(msg?.path || '');
+  const fileName = basenameOf(filePath);
+  return (
+    `<div class="chat-mutation-card">` +
+      `<div class="chat-mutation-title">${escapeHtml(t('chat.fileMutatedTitle'))}</div>` +
+      `<div class="chat-mutation-desc">${escapeHtml(fileName || filePath)}</div>` +
+      `<div class="chat-mutation-path"><code>${escapeHtml(filePath)}</code></div>` +
+      `<button type="button" class="chat-mutation-open" data-path="${escapeHtml(filePath)}">${escapeHtml(t('btn.openFile'))}</button>` +
+    `</div>`
+  );
+}
+
 function renderChatMessages() {
+  const i18nSafe = (key, fallback) => {
+    const v = t(key);
+    return v === key ? fallback : v;
+  };
   const distanceFromBottom = dom.chatMessages.scrollHeight - dom.chatMessages.scrollTop - dom.chatMessages.clientHeight;
   const wasNearBottom = distanceFromBottom < 40;
 
@@ -2383,6 +3044,12 @@ function renderChatMessages() {
     } else if (msg.role === 'error') {
       el.className = 'chat-msg chat-msg-error';
       el.innerHTML = renderChatErrorCard(msg.error || normalizeChatError(msg.content));
+    } else if (msg.role === 'approval') {
+      el.className = 'chat-msg chat-msg-approval';
+      el.innerHTML = renderChatApprovalCard(msg);
+    } else if (msg.role === 'mutation') {
+      el.className = 'chat-msg chat-msg-mutation';
+      el.innerHTML = renderChatMutationCard(msg);
     } else {
       el.className = 'chat-msg chat-msg-assistant';
       el.innerHTML = formatAssistantMessage(msg.content);
@@ -2391,7 +3058,8 @@ function renderChatMessages() {
   });
 
   // If currently streaming, add a partial message or typing indicator
-  if (chatStreaming) {
+  const hasPendingApproval = chatMessages.some(m => m.role === 'approval' && (m.status === 'pending' || m.status === 'processing'));
+  if (chatStreaming && !hasPendingApproval) {
     const gap = document.createElement('div');
     gap.className = 'chat-stream-gap';
     dom.chatMessages.appendChild(gap);
@@ -2407,6 +3075,22 @@ function renderChatMessages() {
       dots.innerHTML = '<span class="chat-typing-dot"></span><span class="chat-typing-dot"></span><span class="chat-typing-dot"></span>';
       dom.chatMessages.appendChild(dots);
     }
+  }
+  if (chatStreaming) {
+    const status = document.createElement('div');
+    status.className = 'chat-agent-working';
+    status.innerHTML = `<span class="chat-agent-working-dot"></span><span>${escapeHtml(i18nSafe('chat.agentWorking', 'Agent is still working...'))}</span>`;
+    dom.chatMessages.appendChild(status);
+  }
+  if (chatPaused && !chatStreaming) {
+    const paused = document.createElement('div');
+    paused.className = 'chat-agent-paused';
+    paused.innerHTML =
+      `<span class="chat-agent-paused-row">` +
+        `<span class="chat-agent-paused-dot"></span>` +
+        `<span class="chat-agent-paused-title">${escapeHtml(i18nSafe('chat.agentPaused', 'Agent paused'))}</span>` +
+      `</span>`;
+    dom.chatMessages.appendChild(paused);
   }
 
   // Keep sticky scroll whenever user is near the bottom (including streaming).
@@ -2449,6 +3133,14 @@ function normalizeChatError(raw) {
       description: t('chat.err.networkDesc'),
       technical: msg,
       canOpenSettings: true,
+    };
+  }
+  if (/(denied by user|timed out and denied|write action denied|edit action denied)/i.test(msg)) {
+    return {
+      title: t('chat.perm.errorTitle'),
+      description: t('chat.perm.errorDesc'),
+      technical: msg || '',
+      canOpenSettings: false,
     };
   }
   return {
@@ -2641,8 +3333,12 @@ async function buildChatContextPayload() {
       }
     } catch {}
   }
+  const primaryPath = files[0]?.path || '';
+  const primaryDir = primaryPath ? primaryPath.replace(/[\\/][^\\/]+$/, '') : '';
+  const workingDir = loadedFolderPath || primaryDir || '';
   return {
-    primaryPath: files[0]?.path || '',
+    primaryPath,
+    workingDir,
     files,
   };
 }
@@ -2663,6 +3359,9 @@ async function submitChatPrompt(text, opts = {}) {
   }
 
   chatMessages.push({ role: 'user', content: prompt });
+  chatSessionDocKey = getChatDocKey();
+  chatPaused = false;
+  syncChatInputPlaceholder();
   if (clearInput) {
     dom.chatInput.value = '';
     dom.chatInput.style.height = 'auto';
@@ -2683,9 +3382,70 @@ async function submitChatPrompt(text, opts = {}) {
   return true;
 }
 
+async function processQueuedChatPrompts() {
+  if (chatStreaming) return;
+  const next = chatQueuedPrompts.shift();
+  if (!next) return;
+  await submitChatPrompt(next, { clearInput: false });
+}
+
+function setChatInputValue(value) {
+  if (!dom.chatInput) return;
+  dom.chatInput.value = value || '';
+  dom.chatInput.style.height = 'auto';
+  dom.chatInput.style.height = Math.min(dom.chatInput.scrollHeight, 120) + 'px';
+}
+
+function rememberChatPrompt(prompt) {
+  const v = String(prompt || '').trim();
+  if (!v) return;
+  if (chatPromptHistory[chatPromptHistory.length - 1] !== v) {
+    chatPromptHistory.push(v);
+    if (chatPromptHistory.length > 100) chatPromptHistory = chatPromptHistory.slice(-100);
+  }
+  chatPromptHistoryIndex = -1;
+  chatPromptDraft = '';
+}
+
+function navigateChatPromptHistory(direction) {
+  if (!dom.chatInput || chatPromptHistory.length === 0) return false;
+  const ta = dom.chatInput;
+  if (ta.selectionStart !== ta.selectionEnd) return false;
+
+  if (direction < 0) {
+    if (ta.selectionStart !== 0) return false;
+    if (chatPromptHistoryIndex === -1) {
+      chatPromptDraft = ta.value || '';
+      chatPromptHistoryIndex = chatPromptHistory.length - 1;
+    } else if (chatPromptHistoryIndex > 0) {
+      chatPromptHistoryIndex -= 1;
+    }
+    setChatInputValue(chatPromptHistory[chatPromptHistoryIndex] || '');
+    return true;
+  }
+
+  if (chatPromptHistoryIndex === -1) return false;
+  if (ta.selectionStart !== ta.value.length) return false;
+  if (chatPromptHistoryIndex < chatPromptHistory.length - 1) {
+    chatPromptHistoryIndex += 1;
+    setChatInputValue(chatPromptHistory[chatPromptHistoryIndex] || '');
+  } else {
+    chatPromptHistoryIndex = -1;
+    setChatInputValue(chatPromptDraft || '');
+  }
+  return true;
+}
+
 async function sendChatMessage() {
   const text = dom.chatInput.value.trim();
-  if (!text || chatStreaming) return;
+  if (!text) return;
+  rememberChatPrompt(text);
+  if (chatStreaming) {
+    chatQueuedPrompts.push(text);
+    dom.chatInput.value = '';
+    dom.chatInput.style.height = 'auto';
+    return;
+  }
   await submitChatPrompt(text, { clearInput: true });
 }
 
@@ -2790,6 +3550,7 @@ function setupChatListeners() {
     dom.chatSend.disabled = false;
     persistCurrentConversation();
     renderChatMessages();
+    processQueuedChatPrompts();
   });
 
   window.mandy.onChatError(msg => {
@@ -2797,6 +3558,36 @@ function setupChatListeners() {
     chatStreaming = false;
     chatStreamContent = '';
     dom.chatSend.disabled = false;
+    renderChatMessages();
+    processQueuedChatPrompts();
+  });
+
+  window.mandy.onChatPermissionRequest(({ id, details }) => {
+    if (!id) return;
+    if (dom.chatOverlay.classList.contains('hidden')) openChat();
+    const existing = chatMessages.find(m => m.role === 'approval' && m.approvalId === id);
+    if (existing) {
+      existing.status = 'pending';
+      existing.details = details || existing.details || {};
+    } else {
+      chatMessages.push({
+        role: 'approval',
+        approvalId: id,
+        status: 'pending',
+        details: details || {},
+      });
+    }
+    renderChatMessages();
+  });
+
+  window.mandy.onChatPermissionResolved(({ id, approved, reason }) => {
+    if (!id) return;
+    const msg = chatMessages.find(m => m.role === 'approval' && m.approvalId === id);
+    if (!msg) return;
+    if (approved) msg.status = 'approved';
+    else if (reason === 'timeout') msg.status = 'timeout';
+    else if (reason === 'cancelled') msg.status = 'cancelled';
+    else msg.status = 'denied';
     renderChatMessages();
   });
 }
@@ -3134,7 +3925,17 @@ function setupKeyboard() {
     if (e.key === 'Escape') {
       const cfgOverlay = $('#chat-config-overlay');
       if (cfgOverlay && !cfgOverlay.classList.contains('hidden')) { cfgOverlay.classList.add('hidden'); return; }
-      if (!dom.chatOverlay.classList.contains('hidden')) { closeChat(); return; }
+      if (!dom.chatOverlay.classList.contains('hidden')) {
+        if (chatStreaming) {
+          e.preventDefault();
+          window.mandy.cancelChat();
+          chatQueuedPrompts = [];
+          chatPaused = true;
+          syncChatInputPlaceholder();
+          renderChatMessages();
+        }
+        return;
+      }
       if (!dom.settingsOverlay.classList.contains('hidden')) { closeSettings(); return; }
       if (!dom.findBar.classList.contains('hidden')) { closeFind(); return; }
       if (inEditor && viewMode === 'edit') { setViewMode('preview'); return; }
@@ -3212,9 +4013,39 @@ async function init() {
   $('#btn-find').onclick = () => openFind();
   $('#btn-settings').onclick = openSettings;
   $('#btn-open-file').onclick = () => window.mandy.openFileDialog();
+  $('#btn-new-folder-file').onclick = () => startInlineCreateInWorkingDirectory('file');
   $('#btn-refresh-folder').onclick = () => refreshFolderTree();
   $('#btn-open-folder').onclick = () => window.mandy.openFolderDialog();
+  $('#btn-parent-folder').onclick = async () => {
+    const parentPath = getParentFolderPath(loadedFolderPath);
+    if (!parentPath) return;
+    await openFolder(parentPath);
+  };
+  dom.openFileDirBtn.onclick = async () => {
+    const activeTab = tabs.find(t => t.id === activeTabId);
+    if (!activeTab?.path || loadedFolderPath) return;
+    const dirPath = activeTab.path.replace(/[\\/][^\\/]+$/, '');
+    if (!dirPath) return;
+    await openFolder(dirPath);
+  };
+  dom.folderList.addEventListener('contextmenu', e => {
+    if (!loadedFolderPath) return;
+    if (e.target.closest('.tree-dir-header, .tree-file, .tree-inline-create')) return;
+    e.preventDefault();
+    e.stopPropagation();
+    showWorkingDirContextMenu(e.clientX, e.clientY);
+  });
+  dom.folderEmpty.addEventListener('contextmenu', e => {
+    if (!loadedFolderPath) return;
+    if (e.target.closest('button')) return;
+    e.preventDefault();
+    e.stopPropagation();
+    showWorkingDirContextMenu(e.clientX, e.clientY);
+  });
   updateRefreshFolderButtonState();
+  updateNewFolderFileButtonState();
+  updateParentFolderButtonState();
+  updateFolderEmptyActions();
   $('#tab-new-btn').onclick = () => newWelcomeTab();
   dom.tabBar?.addEventListener('scroll', updateTabScrollButtons, { passive: true });
   dom.tabScrollLeft?.addEventListener('click', () => {
@@ -3348,6 +4179,14 @@ async function init() {
     e.stopPropagation();
     toggleChatHistoryMenu();
   };
+  dom.chatAutoApproveToggle.onclick = async () => {
+    try {
+      const res = await window.mandy.setSessionAutoApprove(!chatSessionAutoApprove);
+      if (typeof res?.enabled === 'boolean') chatSessionAutoApprove = res.enabled;
+      else chatSessionAutoApprove = !chatSessionAutoApprove;
+    } catch {}
+    renderChatAutoApproveToggle();
+  };
   dom.chatOverlay.onclick = e => { if (e.target === dom.chatOverlay) closeChat(); };
   document.addEventListener('mousedown', e => {
     if (!dom.chatOverlay.classList.contains('hidden') &&
@@ -3385,6 +4224,18 @@ async function init() {
       moveChatPathSuggestActive(-1);
       return;
     }
+    if (!suggestOpen && e.key === 'ArrowUp') {
+      if (navigateChatPromptHistory(-1)) {
+        e.preventDefault();
+        return;
+      }
+    }
+    if (!suggestOpen && e.key === 'ArrowDown') {
+      if (navigateChatPromptHistory(1)) {
+        e.preventDefault();
+        return;
+      }
+    }
     if (suggestOpen && e.key === 'Enter' && !e.shiftKey) {
       if (triggerChatPathSuggestActive()) {
         e.preventDefault();
@@ -3404,10 +4255,59 @@ async function init() {
     e.preventDefault();
   });
   dom.chatMessages.addEventListener('click', e => {
+    const diffToggle = e.target.closest('.chat-approval-diff-toggle');
+    if (diffToggle) {
+      e.preventDefault();
+      const id = diffToggle.dataset.id || '';
+      if (!id) return;
+      if (chatApprovalExpanded.has(id)) chatApprovalExpanded.delete(id);
+      else chatApprovalExpanded.add(id);
+      renderChatMessages();
+      return;
+    }
+    const permBtn = e.target.closest('.chat-approval-action');
+    if (permBtn) {
+      e.preventDefault();
+      const id = permBtn.dataset.id || '';
+      const action = permBtn.dataset.decision || '';
+      const decision = action === 'allow' || action === 'allow-session';
+      const msg = chatMessages.find(m => m.role === 'approval' && m.approvalId === id);
+      if (!id || !msg || msg.status !== 'pending') return;
+      msg.status = 'processing';
+      renderChatMessages();
+      const submit = () => window.mandy.respondChatPermission(id, decision);
+      const chain = action === 'allow-session'
+        ? window.mandy.setSessionAutoApprove(true).then(s => {
+            if (typeof s?.enabled === 'boolean') chatSessionAutoApprove = s.enabled;
+            else chatSessionAutoApprove = true;
+            renderChatAutoApproveToggle();
+            return submit();
+          })
+        : submit();
+      chain.then(res => {
+        if (!res?.ok) {
+          msg.status = 'pending';
+          chatMessages.push({ role: 'error', content: t('chat.perm.submitFailed') });
+          renderChatMessages();
+        }
+      }).catch(() => {
+        msg.status = 'pending';
+        chatMessages.push({ role: 'error', content: t('chat.perm.submitFailed') });
+        renderChatMessages();
+      });
+      return;
+    }
     const settingsBtn = e.target.closest('.chat-error-action');
     if (settingsBtn) {
       e.preventDefault();
       openAiSettingsFromChat();
+      return;
+    }
+    const openMutatedBtn = e.target.closest('.chat-mutation-open');
+    if (openMutatedBtn) {
+      e.preventDefault();
+      const p = openMutatedBtn.dataset.path || '';
+      if (p) window.mandy.openFileFromPath(p);
       return;
     }
     const a = e.target.closest('a[href]');
@@ -3517,6 +4417,57 @@ async function init() {
     dom.docStats.read.textContent  = `~${Math.max(1, Math.round(words / 200))} ${t('minRead')}`;
     dom.docStats.chars.textContent = `${content.length.toLocaleString()} ${t('chars')}`;
   });
+  window.mandy.onAgentFileMutated(async ({ path: filePath }) => {
+    if (!filePath) return;
+    try { await refreshExpandedFolderForPath(filePath); } catch {}
+    const filePathLower = String(filePath).toLowerCase();
+    const affectedTabs = tabs.filter(t => t.path && t.path.toLowerCase() === filePathLower);
+    let latestRead = null;
+    try {
+      latestRead = await window.mandy.readFile(filePath);
+    } catch {
+      latestRead = {error: 'read-failed'};
+    }
+    const wasDeleted = !!latestRead?.error;
+    if (wasDeleted) {
+      for (const tab of [...affectedTabs]) {
+        await closeTab(tab.id);
+      }
+      try {
+        const updatedRecents = await window.mandy.removeRecent(filePath);
+        purgeDocConversationHistory(filePath, { clearVisible: true });
+        updateRecentsList(updatedRecents);
+      } catch {}
+      return;
+    }
+
+    const activeTab = tabs.find(t => t.id === activeTabId);
+    const isActiveFile = !!activeTab?.path && activeTab.path.toLowerCase() === String(filePath).toLowerCase();
+    if (!isActiveFile) {
+      chatMessages.push({ role: 'mutation', path: filePath });
+      renderChatMessages();
+      persistCurrentConversation();
+      return;
+    }
+    if (activeTab.unsaved) return; // Never clobber unsaved local edits.
+
+    try {
+      const res = latestRead || await window.mandy.readFile(activeTab.path);
+      if (res?.error || typeof res?.content !== 'string') return;
+      const html = await window.mandy.renderMarkdown(res.content, activeTab.path);
+      currentContent = res.content;
+      activeTab.content = res.content;
+      activeTab.html = html || '';
+      dom.editorTextarea.value = res.content;
+      dom.mdContent.innerHTML = html || '';
+      addHeadingIds();
+      buildTOC();
+      const words = countWords(res.content);
+      dom.docStats.words.textContent = `${words.toLocaleString()} ${t('words')}`;
+      dom.docStats.read.textContent  = `~${Math.max(1, Math.round(words / 200))} ${t('minRead')}`;
+      dom.docStats.chars.textContent = `${res.content.length.toLocaleString()} ${t('chars')}`;
+    } catch {}
+  });
   window.mandy.onOpenFolder(folderPath => openFolder(folderPath));
   window.mandy.onAction(action => {
     switch (action) {
@@ -3540,6 +4491,7 @@ async function init() {
 
   // Show sidebar unless hidden
   if (cfg.showTOC === false) dom.sidebar.classList.add('hidden');
+  updateFolderEmptyActions();
 
   // Start with no tabs Ã¢â‚¬â€ just show the welcome screen
   dom.viewer.classList.add('hidden');

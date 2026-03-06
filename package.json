@@ -21,8 +21,11 @@
     "electron-builder": "^26.8.1"
   },
   "dependencies": {
+    "@openai/agents": "^0.5.4",
     "highlight.js": "^11.10.0",
-    "marked": "^13.0.0"
+    "hono": "^4.12.5",
+    "marked": "^13.0.0",
+    "openai": "^6.27.0"
   },
   "build": {
     "appId": "com.mandy.app",
