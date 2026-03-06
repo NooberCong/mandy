@@ -13,18 +13,25 @@ A desktop Markdown + text reader/editor for Windows, with a strong AI Chat workf
 </div>
 
 ## Highlights
-- AI Chat integrated directly in-app with streaming responses and Markdown rendering.
+- Production-grade AI Agent (OpenAI Agents SDK) integrated directly in-app with streaming responses.
 - Ask AI from selected text in preview/editor context menu.
 - Chat context files: add files with `/` path suggestions or file picker; remove context files from chips.
 - Conversation history per document (up to 5), continue old conversations, remove history items.
 - Multi-tab reader/editor with drag-reorder, horizontal overflow controls, and duplicate-name disambiguation.
-- Folder tree actions (new file, new folder, delete) and refresh button.
+- Folder tree with progressive exploration, context menus (create/rename/delete), working-directory actions, and refresh/parent navigation.
 - Works with Markdown and `.txt` files.
 
 ## AI Chat Features
 - Configurable API URL, API key, and model (preset picker + custom value).
-- Context-aware prompts using the active document plus optional extra files.
+- Context-aware prompts using active file, optional extra files, and current working directory.
 - Real-time streaming output with smart incremental formatting.
+- Agent file tools: list/search/read/write/edit/delete with scoped path + extension safety.
+- In-chat permission prompts (no native OS dialog), shown one-by-one.
+- GitHub-style permission diff preview with add/remove coloring, line numbers, and expand/collapse.
+- Session-only auto-approve mode (visible in chat, can be toggled off anytime).
+- Agent pause/resume flow with status indicators; `Esc` can stop running agent work.
+- Queued prompts while agent is busy.
+- Prompt history recall in chat input (`ArrowUp` / `ArrowDown`).
 - Error cards with user-friendly messages and direct "Open AI Settings" action.
 - Resizable chat panel and history menu.
 - Typography in chat follows app font-size settings.
@@ -34,6 +41,7 @@ A desktop Markdown + text reader/editor for Windows, with a strong AI Chat workf
 - Syntax-highlighted code blocks with copy button.
 - Find in document and find in editor.
 - Table of contents, recents, folder browser.
+- Plain-text preview improvements: `.txt` line breaks preserved and rendered without code-block box styling.
 - Theme, palette, typography, line-height, and content-width settings.
 
 ## Internationalization
@@ -84,7 +92,7 @@ Supported languages:
 - `Ctrl+Shift+F`: Toggle focus mode
 - `Ctrl+Shift+A`: Open AI Chat
 - `Ctrl+,`: Open Settings
-- `Esc`: Close overlays/find/chat or clear selection
+- `Esc`: Stop running agent work (in chat), close non-chat overlays/find, or clear selection
 
 ### Search and Navigation
 - `Ctrl+F`: Find in document/editor selection
@@ -108,7 +116,7 @@ Supported languages:
 ### Chat Input
 - `Enter`: Send message
 - `Shift+Enter`: New line
-- `ArrowUp/ArrowDown`: Navigate file path suggestions
+- `ArrowUp/ArrowDown`: Navigate path suggestions, or recall prompt history when suggestions are closed
 - `Enter` (while suggestion list is open): Select highlighted suggestion
 
 ## Development
