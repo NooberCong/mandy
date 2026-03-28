@@ -89,6 +89,7 @@ const CONFIG_PATH = path.join(app.getPath('userData'), 'config.json');
 const RECENTS_PATH = path.join(app.getPath('userData'), 'recents.json');
 const WIN_STATE_PATH = path.join(app.getPath('userData'), 'winstate.json');
 const SCROLL_POS_PATH = path.join(app.getPath('userData'), 'scroll-positions.json');
+const CHAT_HISTORY_PATH = path.join(app.getPath('userData'), 'chat-histories.json');
 
 function loadWinState() {
     try {
@@ -127,7 +128,6 @@ const DEFAULT_CONFIG = {
     aiApiKey: '',
     aiModel: 'gpt-4o-mini',
     chatWidth: 420,
-    chatHistories: {},
 };
 
 function loadConfig() {
@@ -177,10 +177,10 @@ function removeRecentEntry(filePath) {
     let recents = loadRecents().filter(r => r.path !== filePath);
     saveRecents(recents);
     try {
-        const cfg = loadConfig();
-        if (cfg.chatHistories && cfg.chatHistories[filePath]) {
-            delete cfg.chatHistories[filePath];
-            saveConfig(cfg);
+        const histories = loadChatHistories();
+        if (histories[filePath]) {
+            delete histories[filePath];
+            saveChatHistories(histories);
         }
     } catch {
     }
@@ -200,6 +200,37 @@ function loadScrollPositions() {
 function saveScrollPositions(positions) {
     try {
         fs.writeFileSync(SCROLL_POS_PATH, JSON.stringify(positions, null, 2));
+    } catch {
+    }
+}
+
+function loadChatHistories() {
+    try {
+        if (fs.existsSync(CHAT_HISTORY_PATH)) {
+            return JSON.parse(fs.readFileSync(CHAT_HISTORY_PATH, 'utf8')) || {};
+        }
+    } catch {
+    }
+    return {};
+}
+
+function saveChatHistories(data) {
+    try {
+        fs.writeFileSync(CHAT_HISTORY_PATH, JSON.stringify(data, null, 2));
+    } catch {
+    }
+}
+
+// Migrate chatHistories out of config.json into its own file (one-time)
+function migrateChatHistories() {
+    try {
+        if (fs.existsSync(CHAT_HISTORY_PATH)) return; // already migrated
+        const cfg = loadConfig();
+        if (cfg.chatHistories && typeof cfg.chatHistories === 'object' && Object.keys(cfg.chatHistories).length > 0) {
+            saveChatHistories(cfg.chatHistories);
+            delete cfg.chatHistories;
+            saveConfig(cfg);
+        }
     } catch {
     }
 }
@@ -520,10 +551,17 @@ function openFile(filePath, opts = {}) {
 // IPC handlers
 ipcMain.handle('get-config', () => loadConfig());
 ipcMain.handle('save-config', (_, cfg) => {
+    // Strip chatHistories if it leaked back into config (defensive)
+    delete cfg.chatHistories;
     saveConfig(cfg);
     return true;
 });
 ipcMain.handle('get-recents', () => loadRecents());
+ipcMain.handle('get-chat-histories', () => loadChatHistories());
+ipcMain.handle('save-chat-histories', (_, data) => {
+    saveChatHistories(data || {});
+    return true;
+});
 ipcMain.handle('open-file-dialog', () => openFileDialog());
 ipcMain.handle('open-folder-dialog', () => openFolderDialog());
 ipcMain.handle('pick-chat-context-files', (_, startDir) => pickChatContextFiles(startDir));
@@ -695,14 +733,13 @@ ipcMain.handle('rename-item', (_, itemPath, newName) => {
         saveRecents(recents);
 
         // Keep per-doc chat history keys aligned with new path.
-        const cfg = loadConfig();
-        if (cfg.chatHistories && typeof cfg.chatHistories === 'object') {
+        const histories = loadChatHistories();
+        if (Object.keys(histories).length > 0) {
             const nextHistories = {};
-            Object.keys(cfg.chatHistories).forEach(k => {
-                nextHistories[remapPath(k)] = cfg.chatHistories[k];
+            Object.keys(histories).forEach(k => {
+                nextHistories[remapPath(k)] = histories[k];
             });
-            cfg.chatHistories = nextHistories;
-            saveConfig(cfg);
+            saveChatHistories(nextHistories);
         }
 
         // Keep scroll positions aligned too.
@@ -937,9 +974,11 @@ ipcMain.handle('ai-chat-get-session-auto-approve', () => {
     return {ok: true, enabled: sessionAutoApprove};
 });
 
-// File watcher
+// File watcher (debounced — fs.watch fires multiple events per save on Windows)
 let watcher = null;
+let watchDebounce = null;
 ipcMain.handle('watch-file', (_, filePath) => {
+    clearTimeout(watchDebounce);
     if (watcher) {
         try {
             watcher.close();
@@ -949,12 +988,15 @@ ipcMain.handle('watch-file', (_, filePath) => {
     if (!filePath) return;
     try {
         watcher = fs.watch(filePath, () => {
-            try {
-                const content = fs.readFileSync(filePath, 'utf8');
-                const html = renderDocumentHtml(content, filePath);
-                mainWindow.webContents.send('file-changed', {content, html});
-            } catch {
-            }
+            clearTimeout(watchDebounce);
+            watchDebounce = setTimeout(() => {
+                try {
+                    const content = fs.readFileSync(filePath, 'utf8');
+                    const html = renderDocumentHtml(content, filePath);
+                    mainWindow.webContents.send('file-changed', {content, html});
+                } catch {
+                }
+            }, 150);
         });
     } catch {
     }
@@ -973,7 +1015,10 @@ if (!gotLock) {
         const fileArg = argv.find(arg => !arg.startsWith('-') && /\.(md|markdown|mdx|txt)$/i.test(arg) && fs.existsSync(arg));
         if (fileArg) openFile(fileArg);
     });
-    app.whenReady().then(createWindow);
+    app.whenReady().then(() => {
+        migrateChatHistories();
+        createWindow();
+    });
 }
 
 app.on('window-all-closed', () => {

@@ -6,6 +6,7 @@
 
 // ---- Globals ----
 let cfg = {};
+let chatHistories = {};  // Separate from config — loaded/saved independently
 let currentFile = null;
 let currentContent = '';
 let findMatches = [];
@@ -14,6 +15,7 @@ let liveReload = true;
 let viewMode = 'preview';       // 'preview' | 'split' | 'edit'
 let hasUnsavedChanges = false;
 let previewUpdateTimer = null;
+let _previewHtmlDirty = false;  // Set when preview DOM changes, cleared on HTML snapshot
 
 // ---- Chat state ----
 let chatMessages = [];   // { role: 'user'|'assistant'|'error'|'approval', content?: string }[]
@@ -72,7 +74,8 @@ function refreshDynamicText() {
   if (!loadedFolderName) dom.folderName.textContent = t('hdr.noFolder');
   const activeTab = tabs.find(tab => tab.id === activeTabId);
   if (activeTab && activeTab.content && cfg.showWordCount !== false) {
-    const words = countWords(activeTab.content);
+    if (activeTab._wordCountCached == null) activeTab._wordCountCached = countWords(activeTab.content);
+    const words = activeTab._wordCountCached;
     dom.docStats.words.textContent = `${words.toLocaleString()} ${t('words')}`;
     dom.docStats.read.textContent  = `~${Math.max(1, Math.round(words / 200))} ${t('minRead')}`;
     dom.docStats.chars.textContent = `${activeTab.content.length.toLocaleString()} ${t('chars')}`;
@@ -246,6 +249,7 @@ function setViewMode(mode) {
 async function updatePreview() {
   const html = await renderMarkdown(dom.editorTextarea.value);
   dom.mdContent.innerHTML = html;
+  _previewHtmlDirty = true;
   addHeadingIds();
   buildTOC();
   updateProgress();
@@ -267,8 +271,16 @@ async function updatePreview() {
 let _scrollAnchors    = null;
 let _scrollDriver     = null;   // 'editor' | 'preview' | null
 let _scrollDriverTimer = null;
+let _scrollMirror     = null;   // Persistent hidden div for measuring textarea line heights
 
-function invalidateScrollAnchors() { _scrollAnchors = null; }
+function invalidateScrollAnchors() {
+  _scrollAnchors = null;
+  // Remove stale mirror — will be recreated lazily with fresh styles
+  if (_scrollMirror && _scrollMirror.parentNode) {
+    _scrollMirror.parentNode.removeChild(_scrollMirror);
+  }
+  _scrollMirror = null;
+}
 
 function buildScrollAnchors() {
   const ta   = dom.editorTextarea;
@@ -313,21 +325,29 @@ function buildScrollAnchors() {
     ];
   }
 
-  // 4. Measure accurate visual Y positions with a mirror div.
-  //    A mirror div styled like the textarea renders identical text with the
-  //    same wrapping Ã¢â‚¬â€ its scrollHeight after filling with text up to a heading
-  //    equals the pixel offset of that heading inside the textarea.
+  // 4. Measure accurate visual Y positions with a persistent mirror div.
+  //    Styled like the textarea so it wraps identically — scrollHeight after
+  //    filling with text up to a heading = pixel offset inside the textarea.
   const cs = getComputedStyle(ta);
-  const mirror = document.createElement('div');
-  Object.assign(mirror.style, {
-    position:      'absolute',
-    visibility:    'hidden',
-    pointerEvents: 'none',
-    left:          '-9999px',
-    top:           '0',
-    // box-sizing:border-box + width:clientWidth Ã¢â€ â€™ same content width as textarea
+  if (!_scrollMirror) {
+    _scrollMirror = document.createElement('div');
+    Object.assign(_scrollMirror.style, {
+      position:      'absolute',
+      visibility:    'hidden',
+      pointerEvents: 'none',
+      left:          '-9999px',
+      top:           '0',
+      boxSizing:     'border-box',
+      paddingBottom: '0',
+      whiteSpace:    'pre-wrap',
+      wordBreak:     'break-word',
+      overflowWrap:  'break-word',
+    });
+    document.body.appendChild(_scrollMirror);
+  }
+  // Sync styles that may change (font size, width, etc.)
+  Object.assign(_scrollMirror.style, {
     width:         ta.clientWidth + 'px',
-    boxSizing:     'border-box',
     fontFamily:    cs.fontFamily,
     fontSize:      cs.fontSize,
     fontWeight:    cs.fontWeight,
@@ -336,21 +356,13 @@ function buildScrollAnchors() {
     paddingTop:    cs.paddingTop,
     paddingRight:  cs.paddingRight,
     paddingLeft:   cs.paddingLeft,
-    paddingBottom: '0',          // omit bottom padding Ã¢â‚¬â€ we measure from the top
-    whiteSpace:    'pre-wrap',
-    wordBreak:     'break-word',
-    overflowWrap:  'break-word',
   });
-  document.body.appendChild(mirror);
 
   const anchors = [{ editorY: 0, previewY: 0 }];
   for (const p of pairs) {
-    // Text BEFORE the heading Ã¢â€ â€™ rendered height = Y where heading starts.
-    mirror.textContent = text.slice(0, p.charOffset);
-    anchors.push({ editorY: mirror.scrollHeight, previewY: p.previewY });
+    _scrollMirror.textContent = text.slice(0, p.charOffset);
+    anchors.push({ editorY: _scrollMirror.scrollHeight, previewY: p.previewY });
   }
-
-  document.body.removeChild(mirror);
 
   anchors.push({
     editorY: Math.max(0, ta.scrollHeight - ta.clientHeight),
@@ -413,9 +425,10 @@ function handleEditorInput() {
 
   // Keep tab dot in sync (only re-render bar on first change)
   const activeTab = tabs.find(t => t.id === activeTabId);
+  if (activeTab) activeTab._wordCountCached = null; // invalidate cached word count
   if (activeTab && !activeTab.unsaved) {
     activeTab.unsaved = true;
-    renderTabBar();
+    updateTabBarState();
   }
 
   if (viewMode === 'split') {
@@ -475,7 +488,10 @@ function saveActiveTabState() {
   tab.previewScroll = dom.scrollContainer.scrollTop;
   tab.viewMode      = viewMode;
   tab.unsaved       = hasUnsavedChanges;
-  tab.html          = dom.mdContent.innerHTML;
+  if (_previewHtmlDirty) {
+    tab.html = dom.mdContent.innerHTML;
+    _previewHtmlDirty = false;
+  }
 
   // Persist scroll position to disk if enabled
   if (cfg.rememberScrollPos !== false && tab.path) {
@@ -509,9 +525,12 @@ function activateTab(tabId) {
   dom.docFilename.textContent = tab.name;
   dom.statusFile.textContent  = tab.path || '';
 
-  // Word count
+  // Word count (use cached value to avoid regex scan on every tab switch)
   if (cfg.showWordCount !== false && tab.content) {
-    const words = countWords(tab.content);
+    if (tab._wordCountCached == null) {
+      tab._wordCountCached = countWords(tab.content);
+    }
+    const words = tab._wordCountCached;
     dom.docStats.words.textContent = `${words.toLocaleString()} ${t('words')}`;
     dom.docStats.read.textContent  = `~${Math.max(1, Math.round(words / 200))} ${t('minRead')}`;
     dom.docStats.chars.textContent = `${tab.content.length.toLocaleString()} ${t('chars')}`;
@@ -539,7 +558,10 @@ function activateTab(tabId) {
     dom.scrollContainer.scrollTo({ top: tab.previewScroll, behavior: 'instant' });
   });
 
-  renderTabBar();
+  // Full rebuild if tab count changed (add/remove); lightweight update otherwise
+  const tabDomCount = $$('.tab', dom.tabBar).length;
+  if (tabDomCount !== tabs.length) renderTabBar();
+  else updateTabBarState();
   updateChatButtonState();
   updateChatFileBadge();
   updateFolderEmptyActions();
@@ -778,6 +800,23 @@ function renderTabBar() {
   updateTabScrollButtons();
 }
 
+// Lightweight tab bar update — toggles active class, unsaved dot, and name
+// without rebuilding DOM nodes or re-attaching drag listeners.
+function updateTabBarState() {
+  const bar = dom.tabBar;
+  if (!bar) return;
+  $$('.tab', bar).forEach(el => {
+    const tabId = el.dataset.tabId;
+    const tab = tabs.find(t => t.id === tabId);
+    if (!tab) return;
+    el.classList.toggle('active', tabId === activeTabId);
+    const dot = el.querySelector('.tab-dot');
+    if (dot) dot.classList.toggle('hidden', !tab.unsaved);
+  });
+  const activeEl = $('.tab.active', bar);
+  if (activeEl) activeEl.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'auto' });
+}
+
 function updateTabScrollButtons() {
   const bar = dom.tabBar;
   if (!bar || !dom.tabScrollLeft || !dom.tabScrollRight) return;
@@ -879,15 +918,16 @@ async function saveFile() {
   if (result.ok) {
     currentContent    = content;
     hasUnsavedChanges = false;
-    if (activeTab) { activeTab.unsaved = false; activeTab.content = content; }
+    if (activeTab) { activeTab.unsaved = false; activeTab.content = content; activeTab._wordCountCached = null; }
     updateUnsavedIndicator();
-    renderTabBar();
+    updateTabBarState();
     const recents = await window.mandy.addRecent(currentFile);
     updateRecentsList(recents);
     updateWelcomeRecents(recents);
     // Re-render preview with saved content
     const html = await renderMarkdown(content);
     dom.mdContent.innerHTML = html;
+    _previewHtmlDirty = false; // Stored directly on tab below
     if (activeTab) activeTab.html = html;
     addHeadingIds();
     buildTOC();
@@ -1008,6 +1048,13 @@ function updateToolbarState() {
   $$('.toolbar-btn[data-action]').forEach(btn => {
     btn.classList.toggle('active', active.has(btn.dataset.action));
   });
+}
+
+// Debounced version — avoids running multiple regex scans on every caret move
+let _toolbarDebounce = null;
+function debouncedUpdateToolbarState() {
+  clearTimeout(_toolbarDebounce);
+  _toolbarDebounce = setTimeout(updateToolbarState, 60);
 }
 
 // ---- Format insertion / toggling ----
@@ -1211,7 +1258,7 @@ function setupEditorKeyboard() {
 
   dom.editorTextarea.addEventListener('input', handleEditorInput);
   dom.editorTextarea.addEventListener('scroll', syncEditorToPreview, { passive: true });
-  dom.editorTextarea.addEventListener('click', () => { updateEditorStatus(); updateToolbarState(); });
+  dom.editorTextarea.addEventListener('click', () => { updateEditorStatus(); debouncedUpdateToolbarState(); });
   dom.editorTextarea.addEventListener('mousedown', e => {
     if (e.detail !== 2) return;
     e.preventDefault();
@@ -1222,10 +1269,10 @@ function setupEditorKeyboard() {
     while (end < text.length && /\w/.test(text[end])) end++;
     ta.setSelectionRange(s, end);
   });
-  dom.editorTextarea.addEventListener('keyup', () => { updateEditorStatus(); updateToolbarState(); });
+  dom.editorTextarea.addEventListener('keyup', () => { updateEditorStatus(); debouncedUpdateToolbarState(); });
   // selectionchange fires on arrow-key navigation, mouse selection, etc.
   document.addEventListener('selectionchange', () => {
-    if (document.activeElement === dom.editorTextarea) updateToolbarState();
+    if (document.activeElement === dom.editorTextarea) debouncedUpdateToolbarState();
   });
 }
 
@@ -1332,9 +1379,20 @@ function countWords(text) {
 let _tocScrolling = false;
 let _tocScrollTimer = null;
 let _scrollSpyListener = null;
+let _lastTocSignature = null;
 
 function buildTOC() {
   const headings = $$('h1,h2,h3,h4,h5,h6', dom.mdContent);
+
+  // Skip full rebuild if heading structure hasn't changed
+  const sig = headings.map(h => h.tagName + ':' + h.textContent).join('\n');
+  if (sig === _lastTocSignature && dom.tocList.children.length > 0) {
+    // Headings unchanged — just refresh scroll-spy offsets
+    observeHeadings(headings);
+    return;
+  }
+  _lastTocSignature = sig;
+
   dom.tocList.innerHTML = '';
 
   if (headings.length === 0) {
@@ -1527,10 +1585,10 @@ function remapPathForRename(oldPath, newPath, inputPath) {
 function remapRenamePathInLocalState(oldPath, newPath) {
   ensureChatHistories();
   const nextHistories = {};
-  Object.keys(cfg.chatHistories || {}).forEach(k => {
-    nextHistories[remapPathForRename(oldPath, newPath, k)] = cfg.chatHistories[k];
+  Object.keys(chatHistories).forEach(k => {
+    nextHistories[remapPathForRename(oldPath, newPath, k)] = chatHistories[k];
   });
-  cfg.chatHistories = nextHistories;
+  chatHistories = nextHistories;
 
   const remapMap = (src) => {
     const out = {};
@@ -2586,21 +2644,21 @@ function renderChatContextFiles() {
 }
 
 function ensureChatHistories() {
-  if (!cfg.chatHistories || typeof cfg.chatHistories !== 'object') cfg.chatHistories = {};
+  if (!chatHistories || typeof chatHistories !== 'object') chatHistories = {};
 }
 
 function getDocConversations(docKey = getChatDocKey()) {
   ensureChatHistories();
-  const list = cfg.chatHistories[docKey];
+  const list = chatHistories[docKey];
   return Array.isArray(list) ? list : [];
 }
 
 function setDocConversations(list, docKey = getChatDocKey()) {
   ensureChatHistories();
   const next = list.slice(0, 5);
-  if (next.length === 0) delete cfg.chatHistories[docKey];
-  else cfg.chatHistories[docKey] = next;
-  window.mandy.saveConfig(cfg);
+  if (next.length === 0) delete chatHistories[docKey];
+  else chatHistories[docKey] = next;
+  window.mandy.saveChatHistories(chatHistories);
 }
 
 function purgeDocConversationHistory(docKey, opts = {}) {
@@ -3006,6 +3064,43 @@ function renderChatMutationCard(msg) {
       `<button type="button" class="chat-mutation-open" data-path="${escapeHtml(filePath)}">${escapeHtml(t('btn.openFile'))}</button>` +
     `</div>`
   );
+}
+
+// Lightweight update during streaming — only touches the streaming bubble,
+// avoiding a full DOM rebuild on every chunk.
+let _streamingRafPending = false;
+function updateStreamingContent() {
+  if (_streamingRafPending) return;
+  _streamingRafPending = true;
+  requestAnimationFrame(() => {
+    _streamingRafPending = false;
+    if (!chatStreaming) return;
+
+    const distanceFromBottom = dom.chatMessages.scrollHeight - dom.chatMessages.scrollTop - dom.chatMessages.clientHeight;
+    const wasNearBottom = distanceFromBottom < 40;
+
+    // Find or create the streaming element
+    let streamEl = dom.chatMessages.querySelector('.chat-msg-streaming');
+    const typing = dom.chatMessages.querySelector('.chat-typing');
+
+    if (chatStreamContent) {
+      if (!streamEl) {
+        // Remove typing dots if present, replace with streaming message
+        if (typing) typing.remove();
+        streamEl = document.createElement('div');
+        streamEl.className = 'chat-msg chat-msg-assistant chat-msg-streaming';
+        // Insert before the agent-working status if it exists, else append
+        const workingEl = dom.chatMessages.querySelector('.chat-agent-working');
+        if (workingEl) dom.chatMessages.insertBefore(streamEl, workingEl);
+        else dom.chatMessages.appendChild(streamEl);
+      }
+      streamEl.innerHTML = formatStreamingAssistantMessage(chatStreamContent);
+    }
+
+    if (wasNearBottom) {
+      dom.chatMessages.scrollTop = dom.chatMessages.scrollHeight;
+    }
+  });
 }
 
 function renderChatMessages() {
@@ -3538,7 +3633,7 @@ function askAiAboutSpan(selectionText) {
 function setupChatListeners() {
   window.mandy.onChatChunk(delta => {
     chatStreamContent += delta;
-    renderChatMessages();
+    updateStreamingContent();
   });
 
   window.mandy.onChatDone(() => {
@@ -3954,6 +4049,7 @@ function setupKeyboard() {
 // ---- Main init ----
 async function init() {
   cfg = await window.mandy.getConfig();
+  chatHistories = await window.mandy.getChatHistories();
   liveReload = cfg.liveReload ?? true;
 
   applyConfig();
@@ -4073,13 +4169,13 @@ async function init() {
   // Settings
   $('#settings-close').onclick = closeSettings;
   $('#settings-reset').onclick = () => {
-    cfg = { theme:'dark', fontFamily:'sans', fontSize:18, lineHeight:1.8, contentWidth:80, codeTheme:'github-dark', showWordCount:true, smoothScroll:true, zoom:1, liveReload:true, palette:'amber', language:'en', aiApiUrl:'https://api.openai.com', aiApiKey:'', aiModel:'gpt-4o-mini', chatWidth:420, chatHistories:{} };
+    cfg = { theme:'dark', fontFamily:'sans', fontSize:18, lineHeight:1.8, contentWidth:80, codeTheme:'github-dark', showWordCount:true, smoothScroll:true, zoom:1, liveReload:true, palette:'amber', language:'en', aiApiUrl:'https://api.openai.com', aiApiKey:'', aiModel:'gpt-4o-mini', chatWidth:420 };
     liveReload = false;
     setLanguage('en');
     applyConfig();
     syncSettingsUI();
     window.mandy.saveConfig(cfg);
-    if (currentContent) { renderMarkdown(currentContent).then(h => { dom.mdContent.innerHTML = h; buildTOC(); }); }
+    if (currentContent) { renderMarkdown(currentContent).then(h => { dom.mdContent.innerHTML = h; _previewHtmlDirty = true; buildTOC(); }); }
   };
   dom.settingsOverlay.onclick = e => { if (e.target === dom.settingsOverlay) closeSettings(); };
 
@@ -4361,11 +4457,17 @@ async function init() {
     window.mandy.handleLink(href, currentFile);
   });
 
-  // Scroll events
+  // Scroll events (throttled to one update per animation frame)
+  let _scrollRafPending = false;
   dom.scrollContainer.addEventListener('scroll', () => {
-    syncPreviewToEditor();
-    updateProgress();
-    updateScrollThumb();
+    if (_scrollRafPending) return;
+    _scrollRafPending = true;
+    requestAnimationFrame(() => {
+      _scrollRafPending = false;
+      syncPreviewToEditor();
+      updateProgress();
+      updateScrollThumb();
+    });
   }, { passive: true });
 
   // Recalculate thumb on container resize (window resize, sidebar toggle, etc.)
@@ -4408,8 +4510,9 @@ async function init() {
     if (!liveReload) return;
     currentContent = content;
     const activeTab = tabs.find(t => t.id === activeTabId);
-    if (activeTab) { activeTab.content = content; activeTab.html = html || ''; }
+    if (activeTab) { activeTab.content = content; activeTab.html = html || ''; activeTab._wordCountCached = null; }
     dom.mdContent.innerHTML = html || '';
+    _previewHtmlDirty = false; // Stored directly on tab above
     addHeadingIds();
     buildTOC();
     const words = countWords(content);
@@ -4458,8 +4561,10 @@ async function init() {
       currentContent = res.content;
       activeTab.content = res.content;
       activeTab.html = html || '';
+      activeTab._wordCountCached = null;
       dom.editorTextarea.value = res.content;
       dom.mdContent.innerHTML = html || '';
+      _previewHtmlDirty = false; // Stored directly on tab above
       addHeadingIds();
       buildTOC();
       const words = countWords(res.content);

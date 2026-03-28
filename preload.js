@@ -4,6 +4,8 @@ contextBridge.exposeInMainWorld('mandy', {
   // Config
   getConfig:    ()    => ipcRenderer.invoke('get-config'),
   saveConfig:   (cfg) => ipcRenderer.invoke('save-config', cfg),
+  getChatHistories:  ()     => ipcRenderer.invoke('get-chat-histories'),
+  saveChatHistories: (data) => ipcRenderer.invoke('save-chat-histories', data),
 
   // Files
   getRecents:       ()  => ipcRenderer.invoke('get-recents'),
